@@ -32,6 +32,7 @@ body { background: #07001a; font-family: 'Courier New', monospace; color: #aaa; 
 #cw {
   position: sticky; top: 0; height: 272px;
   background: #07001a; border-bottom: 1px solid #ffffff09; z-index: 10;
+  overflow: hidden;
 }
 #ctrl {
   position: absolute; top: 10px; left: 14px;
@@ -62,7 +63,7 @@ select option { background: #10001c; }
 #stats {
   position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
   font-size: 9px; letter-spacing: 2px; color: #ffffff1a;
-  text-transform: uppercase; white-space: nowrap;
+  text-transform: uppercase; white-space: nowrap; pointer-events: none;
 }
 #leg {
   position: absolute; top: 8px; right: 14px;
@@ -71,7 +72,9 @@ select option { background: #10001c; }
 .li { display: flex; align-items: center; gap: 6px; cursor: pointer; transition: opacity .35s; }
 .ld { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .lt { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+/* p5 canvas absolute-fills the chart div */
+#cw canvas { position: absolute; top: 0; left: 0; }
 
 /* ── SCROLL SECTIONS ─────────────────────────────────── */
 .sec {
@@ -91,7 +94,7 @@ svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
   background: #1a003a; border: 1px solid #ffffff18;
   padding: 10px 14px; font-size: 10px; line-height: 1.7;
   max-width: 280px; z-index: 500; opacity: 0;
-  transition: opacity .2s; letter-spacing: .5px;
+  transition: opacity .15s; letter-spacing: .5px;
 }
 #tooltip .t-frase  { color: #ffffffcc; margin-bottom: 6px; font-style: italic; }
 #tooltip .t-meta   { color: #ffffff44; font-size: 9px; }
@@ -124,35 +127,41 @@ body::-webkit-scrollbar-thumb { background: #ffffff18; border-radius: 2px; }
   </div>
   <div id="stats"></div>
   <div id="leg"></div>
-  <svg id="chart"></svg>
+  <!-- p5 canvas injected here -->
 </div>
 <div id="sections"></div>
 <div style="height: 480px;"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.3/p5.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script>
 
 /* ══════════════════════════════════════════════════════
-   CONFIGURACIÓN
+   CONFIG
    ══════════════════════════════════════════════════════ */
 const MAX_KW  = 8;
 const PALETTE = ['#ff00cc','#00e5a0','#ffaa00','#ff4455','#4499ff','#bb44ff','#ff8844','#00ccff'];
 const MES_ES  = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+
+// Pre-parse palette to RGB for p5
+const PAL_RGB = PALETTE.map(h => ({
+  r: parseInt(h.slice(1,3),16),
+  g: parseInt(h.slice(3,5),16),
+  b: parseInt(h.slice(5,7),16)
+}));
 
 const TEXTS = {
   intro: 'Fragmentos de conferencias de prensa indexados por keyword y fecha. Desplázate para explorar cada tema o filtra desde el dropdown.',
 };
 
 /* ══════════════════════════════════════════════════════
-   CARGA DE DATOS — CSV local
+   CARGA CSV
    ══════════════════════════════════════════════════════ */
 async function loadData() {
   const res = await fetch('data/db_frases.csv');
   if (!res.ok) throw new Error(`No se pudo cargar el CSV (${res.status})`);
   const text = await res.text();
-  const { data, errors } = Papa.parse(text, { header: true, skipEmptyLines: true });
-  if (errors.length) console.warn('CSV parse warnings:', errors.slice(0, 3));
+  const { data } = Papa.parse(text, { header: true, skipEmptyLines: true });
   return data
     .map(r => ({
       keyword : (r.keywords || '').trim().toLowerCase(),
@@ -168,51 +177,43 @@ async function loadData() {
    PROCESAMIENTO
    ══════════════════════════════════════════════════════ */
 function parseDate(fecha) {
-  // fecha format: DD/MM/YYYY
   const [d, m, y] = fecha.split('/');
   if (!d || !m || !y) return null;
   return new Date(+y, +m - 1, +d);
 }
 
+function monthRange(start, end) {
+  const months = [];
+  const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+  const last = new Date(end.getFullYear(), end.getMonth(), 1);
+  while (cur <= last) { months.push(new Date(cur)); cur.setMonth(cur.getMonth() + 1); }
+  return months;
+}
+
 function processData(raw) {
-  // Contar keywords
   const kwCount = {};
   raw.forEach(p => {
-    const kk = p.keyword.trim().toLowerCase();
+    const kk = p.keyword;
     if (kk) kwCount[kk] = (kwCount[kk] || 0) + 1;
   });
+  const KW = Object.entries(kwCount).sort((a,b)=>b[1]-a[1]).slice(0,MAX_KW).map(([k])=>k);
 
-  // Top N por frecuencia
-  const KW = Object.entries(kwCount)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, MAX_KW)
-    .map(([k]) => k);
-
-  // Meses únicos ordenados
   const moSet = new Set();
   raw.forEach(p => {
     const pts = p.fecha.split('/');
     if (pts.length === 3) moSet.add(`${pts[2]}-${pts[1].padStart(2,'0')}`);
   });
   const MO_KEYS  = [...moSet].sort();
-  const MO_LABEL = MO_KEYS.map(k => {
-    const [y, m] = k.split('-');
-    return `${MES_ES[+m - 1]} ${y.slice(2)}`;
-  });
+  const MO_LABEL = MO_KEYS.map(k => { const [y,m]=k.split('-'); return `${MES_ES[+m-1]} ${y.slice(2)}`; });
 
-  // Días únicos ordenados
   const daySet = new Set();
-  raw.forEach(p => {
-    const d = parseDate(p.fecha);
-    if (d) daySet.add(d.getTime());
-  });
-  const DAY_KEYS = [...daySet].sort((a, b) => a - b).map(t => new Date(t));
+  raw.forEach(p => { const d=parseDate(p.fecha); if(d) daySet.add(d.getTime()); });
+  const DAY_KEYS = [...daySet].sort((a,b)=>a-b).map(t=>new Date(t));
 
-  // Dots
-  const rng  = makeRng(42);
+  const rng = makeRng(42);
   const dots = [];
   raw.forEach(p => {
-    const ki = KW.indexOf(p.keyword.trim().toLowerCase());
+    const ki = KW.indexOf(p.keyword);
     if (ki < 0) return;
     const pts = p.fecha.split('/');
     if (pts.length < 3) return;
@@ -221,22 +222,15 @@ function processData(raw) {
     if (mi < 0) return;
     const dateObj = parseDate(p.fecha);
     if (!dateObj) return;
-    dots.push({
-      id: dots.length, ki, mi, dateObj,
-      rx: rng() - .5, ry: rng(),
-      score: p.score, frase: p.frase, fecha: p.fecha, subject: p.subject
-    });
+    dots.push({ id:dots.length, ki, mi, dateObj, rx:rng()-.5, ry:rng(),
+      score:p.score, frase:p.frase, fecha:p.fecha, subject:p.subject });
   });
 
-  // Secciones
   const SECS = [
     { kw:-1, tag:'Panorama general', title:'Nash — Análisis de discurso', body: TEXTS.intro },
-    ...KW.map((kw, i) => ({
-      kw: i,
-      tag: `${kwCount[kw]} fragmentos`,
-      title: kw.charAt(0).toUpperCase() + kw.slice(1),
-      body: TEXTS[kw] || 'Lorem ipsum dolor sit amet consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.'
-    }))
+    ...KW.map((kw,i) => ({ kw:i, tag:`${kwCount[kw]} fragmentos`,
+      title: kw.charAt(0).toUpperCase()+kw.slice(1),
+      body: TEXTS[kw]||'Lorem ipsum dolor sit amet consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.' }))
   ];
 
   return { KW, MO_LABEL, MO_KEYS, DAY_KEYS, dots, SECS, kwCount };
@@ -253,20 +247,20 @@ function makeRng(seed) {
 }
 
 /* ══════════════════════════════════════════════════════
-   VISUALIZACIÓN
+   VIZ — p5 sketch
    ══════════════════════════════════════════════════════ */
 function initViz({ KW, MO_LABEL, MO_KEYS, DAY_KEYS, dots, SECS, kwCount }) {
-  const CL  = KW.map((_, i) => PALETTE[i % PALETTE.length]);
-  const tip = document.getElementById('tooltip');
-  let viewMode = 'month'; // 'month' | 'day'
+  const CL = KW.map((_,i) => PALETTE[i % PALETTE.length]);
+  let viewMode = 'month';
+  let curKw    = -1;
 
-  // Secciones de scroll
+  /* ── Secciones de scroll ── */
   const secEl = document.getElementById('sections');
   SECS.forEach((s, i) => {
-    const c = s.kw >= 0 ? CL[s.kw] : '#ffffff44';
+    const c = s.kw>=0 ? CL[s.kw] : '#ffffff44';
     const d = document.createElement('div');
-    d.className = 'sec'; d.dataset.i = i;
-    d.style.borderLeftColor = s.kw >= 0 ? CL[s.kw]+'22' : 'transparent';
+    d.className='sec'; d.dataset.i=i;
+    d.style.borderLeftColor = s.kw>=0 ? CL[s.kw]+'22' : 'transparent';
     d.innerHTML = `<div>
       <div class="stag" style="color:${c}">${s.tag}</div>
       <div class="stit" style="color:${c}">${s.title}</div>
@@ -275,186 +269,260 @@ function initViz({ KW, MO_LABEL, MO_KEYS, DAY_KEYS, dots, SECS, kwCount }) {
     secEl.appendChild(d);
   });
 
-  // Leyenda + Dropdown
+  /* ── Leyenda + Dropdown ── */
   const leg = document.getElementById('leg');
   const sel = document.getElementById('sel');
   KW.forEach((kw, i) => {
     const li = document.createElement('div');
     li.className='li'; li.id=`li${i}`;
     li.innerHTML=`<div class="ld" style="background:${CL[i]}"></div><span class="lt" style="color:${CL[i]}">${kw}</span>`;
-    li.onclick = () => { sel.value=i; applyViz(i); };
+    li.onclick = () => { sel.value=i; applyFilter(i); };
     leg.appendChild(li);
-    const o = document.createElement('option');
-    o.value=i; o.textContent=`● ${kw}`; sel.appendChild(o);
+    const o=document.createElement('option'); o.value=i; o.textContent=`● ${kw}`; sel.appendChild(o);
   });
 
   function updateStats() {
-    const label = viewMode === 'month'
-      ? `${MO_LABEL.length} meses`
-      : `${DAY_KEYS.length} días`;
-    document.getElementById('stats').textContent =
-      `${dots.length.toLocaleString()} fragmentos · ${label}`;
+    const lbl = viewMode==='month' ? `${MO_LABEL.length} meses` : `${DAY_KEYS.length} días`;
+    document.getElementById('stats').textContent = `${dots.length.toLocaleString()} fragmentos · ${lbl}`;
   }
   updateStats();
 
-  // D3 chart
-  const svg = d3.select('#chart');
-  const cw  = document.getElementById('cw');
-  const M   = { top:32, right:14, bottom:38, left:10 };
-  let W, H, DR, curKw=-99;
+  /* ── Tooltip helpers ── */
+  const tip = document.getElementById('tooltip');
+  function showTip(dot, mx, my) {
+    document.getElementById('t-frase').textContent = `"${dot.frase.slice(0,120)}${dot.frase.length>120?'...':''}"`;
+    document.getElementById('t-meta').textContent  = `${dot.fecha} · ${dot.subject} · score ${dot.score}`;
+    tip.style.left    = `${Math.min(mx+14, window.innerWidth-300)}px`;
+    tip.style.top     = `${my-60}px`;
+    tip.style.opacity = 1;
+  }
+  function hideTip() { tip.style.opacity = 0; }
 
-  function build() {
-    W  = cw.clientWidth;
-    H  = cw.clientHeight;
-    DR = Math.max(2.5, Math.min(4.5, W/290));
+  /* ══════════════════════════════════════════════════
+     p5 SKETCH (instance mode)
+     ══════════════════════════════════════════════════ */
+  const cwEl = document.getElementById('cw');
+  const M    = { top:32, right:14, bottom:38, left:10 };
+  const NUM_PARTICLES = 90;
 
+  // Dot state: current position/alpha + targets for lerp
+  dots.forEach(d => {
+    d.cx = Math.random() * cwEl.clientWidth;
+    d.cy = Math.random() * cwEl.clientHeight;
+    d.tx = d.cx; d.ty = d.cy;
+    d.alpha = 0; d.targetAlpha = 120;
+    d.r    = 2.5;
+  });
+
+  // ── Scale helpers (no D3) ──────────────────────────
+  function computeTargets(W, H) {
     if (viewMode === 'month') {
-      const xSc = d3.scaleBand()
-        .domain(d3.range(MO_LABEL.length))
-        .range([M.left, W - M.right])
-        .padding(.15);
-      const bw = xSc.bandwidth();
+      const n  = MO_LABEL.length;
+      const bw = (W - M.left - M.right) / n;
       dots.forEach(d => {
-        d.fx = xSc(d.mi) + bw/2 + d.rx * bw * .62;
-        d.fy = M.top + 4 + d.ry * (H - M.top - M.bottom - 8);
+        d.tx = M.left + d.mi * bw + bw/2 + d.rx * bw * .58;
+        d.ty = M.top + 4 + d.ry * (H - M.top - M.bottom - 8);
       });
     } else {
-      // day mode — time scale
-      const dateMin = DAY_KEYS[0];
-      const dateMax = DAY_KEYS[DAY_KEYS.length - 1];
-      const xSc = d3.scaleTime()
-        .domain([dateMin, dateMax])
-        .range([M.left + 24, W - M.right - 24]);
+      const dateMin = DAY_KEYS[0].getTime();
+      const dateMax = DAY_KEYS[DAY_KEYS.length-1].getTime();
+      const span    = dateMax - dateMin || 1;
+      const xLeft   = M.left + 28, xRight = W - M.right - 28;
       dots.forEach(d => {
-        d.fx = xSc(d.dateObj) + d.rx * 4; // minimal jitter
-        d.fy = M.top + 4 + d.ry * (H - M.top - M.bottom - 8);
+        d.tx = xLeft + (d.dateObj.getTime()-dateMin)/span*(xRight-xLeft) + d.rx*3;
+        d.ty = M.top + 4 + d.ry * (H - M.top - M.bottom - 8);
       });
     }
-
-    svg.selectAll('*').remove();
-
-    // Glow filter
-    const defs = svg.append('defs');
-    const f = defs.append('filter').attr('id','gl').attr('x','-40%').attr('y','-40%').attr('width','180%').attr('height','180%');
-    f.append('feGaussianBlur').attr('in','SourceGraphic').attr('stdDeviation',2.2).attr('result','b');
-    const mg = f.append('feMerge');
-    mg.append('feMergeNode').attr('in','b'); mg.append('feMergeNode').attr('in','SourceGraphic');
-
-    if (viewMode === 'month') {
-      // Column bands + labels (mes)
-      const xSc = d3.scaleBand()
-        .domain(d3.range(MO_LABEL.length))
-        .range([M.left, W - M.right])
-        .padding(.15);
-      d3.range(MO_LABEL.length).forEach(i => {
-        if (i%2===0) svg.append('rect')
-          .attr('x', xSc(i)).attr('y', M.top)
-          .attr('width', xSc.bandwidth()).attr('height', H - M.top - M.bottom)
-          .attr('fill','#ffffff02');
-        svg.append('text')
-          .attr('x', xSc(i) + xSc.bandwidth()/2).attr('y', H - M.bottom + 14)
-          .attr('text-anchor','middle').attr('fill','#ffffff1e')
-          .attr('font-size', Math.max(7.5, Math.min(10, W/170))).attr('font-family','Courier New')
-          .text(MO_LABEL[i]);
-      });
-    } else {
-      // Day mode — draw month gridlines + month labels
-      const dateMin = DAY_KEYS[0];
-      const dateMax = DAY_KEYS[DAY_KEYS.length - 1];
-      const xSc = d3.scaleTime()
-        .domain([dateMin, dateMax])
-        .range([M.left + 24, W - M.right - 24]);
-
-      // month boundaries
-      const months = d3.timeMonth.range(
-        d3.timeMonth.floor(dateMin),
-        d3.timeMonth.offset(d3.timeMonth.floor(dateMax), 1)
-      );
-      months.forEach((mo, i) => {
-        const x = xSc(mo);
-        if (i % 2 === 0) {
-          const xNext = i + 1 < months.length ? xSc(months[i+1]) : W - M.right - 24;
-          svg.append('rect')
-            .attr('x', x).attr('y', M.top)
-            .attr('width', Math.max(0, xNext - x)).attr('height', H - M.top - M.bottom)
-            .attr('fill','#ffffff02');
-        }
-        if (x > M.left + 10 && x < W - M.right - 10) {
-          svg.append('line')
-            .attr('x1', x).attr('x2', x)
-            .attr('y1', M.top).attr('y2', H - M.bottom)
-            .attr('stroke','#ffffff08');
-        }
-        svg.append('text')
-          .attr('x', x + 4).attr('y', H - M.bottom + 14)
-          .attr('text-anchor','start').attr('fill','#ffffff1e')
-          .attr('font-size', Math.max(7.5, Math.min(10, W/170))).attr('font-family','Courier New')
-          .text(`${MES_ES[mo.getMonth()]} ${String(mo.getFullYear()).slice(2)}`);
-      });
-    }
-
-    // Dots
-    svg.selectAll('.dot').data(dots, d=>d.id).join('circle')
-      .attr('class','dot')
-      .attr('cx',d=>d.fx).attr('cy',d=>d.fy)
-      .attr('r',DR).attr('fill',d=>CL[d.ki]).attr('opacity',.12)
-      .on('mouseover', (event, d) => {
-        document.getElementById('t-frase').textContent = `"${d.frase.slice(0,120)}${d.frase.length>120?'...':''}"`;
-        document.getElementById('t-meta').textContent  = `${d.fecha} · ${d.subject} · score ${d.score}`;
-        tip.style.opacity = 1;
-      })
-      .on('mousemove', event => {
-        tip.style.left = `${Math.min(event.clientX+14, window.innerWidth-300)}px`;
-        tip.style.top  = `${event.clientY-60}px`;
-      })
-      .on('mouseout', () => tip.style.opacity = 0);
   }
 
-  function applyViz(kw) {
-    if (kw===curKw) return; curKw=kw;
-    const all = svg.selectAll('.dot');
+  new p5(p => {
+
+    // ── Background particles ──────────────────────────
+    class Particle {
+      constructor() { this.reset(p.width, p.height, true); }
+      reset(W, H, rand) {
+        this.x  = rand ? Math.random()*W : (Math.random()<.5?-2:W+2);
+        this.y  = Math.random()*H;
+        this.vx = (Math.random()-.5) * .35;
+        this.vy = (Math.random()-.5) * .25;
+        this.r  = Math.random()*1.2+.3;
+        this.ki = Math.floor(Math.random()*KW.length);
+        this.alpha = Math.random()*35+8;
+        this.life = Math.random()*400+200;
+        this.age  = 0;
+      }
+      update(W, H) {
+        this.x += this.vx; this.y += this.vy; this.age++;
+        if (this.age > this.life) this.reset(W, H, false);
+      }
+      draw(p) {
+        const rgb = PAL_RGB[this.ki];
+        const fade = this.age < 30 ? this.age/30 : this.age > this.life-30 ? (this.life-this.age)/30 : 1;
+        const a = this.alpha * fade;
+        p.drawingContext.shadowBlur  = 6;
+        p.drawingContext.shadowColor = `rgba(${rgb.r},${rgb.g},${rgb.b},0.5)`;
+        p.fill(rgb.r, rgb.g, rgb.b, a);
+        p.noStroke();
+        p.circle(this.x, this.y, this.r*2);
+        p.drawingContext.shadowBlur = 0;
+      }
+    }
+
+    let particles = [];
+    let W, H;
+
+    p.setup = () => {
+      const cnv = p.createCanvas(cwEl.clientWidth, cwEl.clientHeight);
+      cnv.style('position','absolute');
+      cnv.style('top','0'); cnv.style('left','0');
+      p.pixelDensity(Math.min(window.devicePixelRatio, 2));
+      W = p.width; H = p.height;
+      for (let i=0; i<NUM_PARTICLES; i++) particles.push(new Particle());
+      computeTargets(W, H);
+      // Scatter dots from random spawn positions toward targets
+      dots.forEach(d => { d.cx=W*.5+(.5-Math.random())*W*.4; d.cy=H*.5+(.5-Math.random())*H*.4; });
+    };
+
+    // ── Axis drawing ──────────────────────────────────
+    function drawAxis() {
+      p.textFont('Courier New');
+      p.textSize(Math.max(7.5, Math.min(10, W/170)));
+      p.noStroke();
+
+      if (viewMode === 'month') {
+        const n  = MO_LABEL.length;
+        const bw = (W - M.left - M.right) / n;
+        for (let i=0; i<n; i++) {
+          const x = M.left + i*bw;
+          if (i%2===0) {
+            p.fill(255,255,255,5);
+            p.rect(x, M.top, bw, H-M.top-M.bottom);
+          }
+          p.fill(255,255,255,28);
+          p.textAlign(p.CENTER);
+          p.text(MO_LABEL[i], x+bw/2, H-M.bottom+14);
+        }
+      } else {
+        const dateMin = DAY_KEYS[0];
+        const dateMax = DAY_KEYS[DAY_KEYS.length-1];
+        const span    = dateMax-dateMin || 1;
+        const xLeft   = M.left+28, xRight = W-M.right-28;
+        const months  = monthRange(dateMin, dateMax);
+        months.forEach((mo, i) => {
+          const x = xLeft + (mo.getTime()-dateMin)/span*(xRight-xLeft);
+          if (i%2===0 && i+1<months.length) {
+            const xn = xLeft + (months[i+1].getTime()-dateMin)/span*(xRight-xLeft);
+            p.fill(255,255,255,5);
+            p.rect(x, M.top, xn-x, H-M.top-M.bottom);
+          }
+          if (x>M.left+8 && x<W-M.right-8) {
+            p.stroke(255,255,255,10); p.strokeWeight(1);
+            p.line(x, M.top, x, H-M.bottom);
+            p.noStroke();
+          }
+          p.fill(255,255,255,28);
+          p.textAlign(p.LEFT);
+          p.text(`${MES_ES[mo.getMonth()]} ${String(mo.getFullYear()).slice(2)}`, x+4, H-M.bottom+14);
+        });
+      }
+    }
+
+    // ── Data dot drawing ─────────────────────────────
+    function drawDots() {
+      p.noStroke();
+      dots.forEach(d => {
+        // lerp toward target
+        d.cx = p.lerp(d.cx, d.tx, .055);
+        d.cy = p.lerp(d.cy, d.ty, .055);
+        d.alpha = p.lerp(d.alpha, d.targetAlpha, .07);
+
+        if (d.alpha < 1) return;
+        const rgb = PAL_RGB[d.ki];
+        const glowA  = d.targetAlpha > 100 ? .7 : .2;
+        const glowSz = d.targetAlpha > 100 ? 10 : 3;
+        p.drawingContext.shadowBlur  = glowSz;
+        p.drawingContext.shadowColor = `rgba(${rgb.r},${rgb.g},${rgb.b},${glowA})`;
+        p.fill(rgb.r, rgb.g, rgb.b, d.alpha);
+        p.circle(d.cx, d.cy, d.r*2);
+      });
+      p.drawingContext.shadowBlur = 0;
+    }
+
+    // ── Hover detection ──────────────────────────────
+    let hoveredDot = null;
+    p.mouseMoved = () => {
+      if (p.mouseY<0||p.mouseY>H||p.mouseX<0||p.mouseX>W) { hideTip(); return; }
+      let best=null, bestD=10;
+      for (const d of dots) {
+        if (d.targetAlpha < 10) continue;
+        const dist = Math.hypot(p.mouseX-d.cx, p.mouseY-d.cy);
+        if (dist < bestD) { bestD=dist; best=d; }
+      }
+      if (best !== hoveredDot) {
+        hoveredDot = best;
+        if (best) showTip(best, p.mouseX + cwEl.getBoundingClientRect().left, p.mouseY + cwEl.getBoundingClientRect().top);
+        else hideTip();
+      }
+    };
+
+    p.draw = () => {
+      p.background(7, 0, 26);
+      drawAxis();
+      particles.forEach(pt => { pt.update(W, H); pt.draw(p); });
+      drawDots();
+    };
+
+    p.windowResized = () => {
+      W = cwEl.clientWidth; H = cwEl.clientHeight;
+      p.resizeCanvas(W, H);
+      computeTargets(W, H);
+    };
+
+  }, cwEl);
+
+  /* ── Filter / highlight ──────────────────────────── */
+  function applyFilter(kw) {
+    if (kw === curKw) return; curKw = kw;
     const lbl = document.getElementById('klbl');
     lbl.textContent = kw>=0 ? KW[kw] : '';
     lbl.style.color = kw>=0 ? CL[kw]+'88' : '';
-    KW.forEach((_,i)=>{ const e=document.getElementById(`li${i}`); if(e) e.style.opacity=(kw===-1||i===kw)?1:.22; });
-    document.querySelectorAll('.sec').forEach((s,i)=>{
-      const sk=SECS[i].kw;
-      s.style.background     = i===kw+1 ? CL[sk]+'09' : 'transparent';
-      s.style.borderLeftColor= i===kw+1 ? CL[sk]+'77' : sk>=0 ? CL[sk]+'22' : 'transparent';
+
+    // dot visibility
+    dots.forEach(d => {
+      d.targetAlpha = (kw===-1 || d.ki===kw) ? 200 : 8;
     });
-    if (kw===-1) {
-      all.interrupt().transition().duration(650).ease(d3.easeCubicOut).attr('cx',d=>d.fx).attr('cy',d=>d.fy).attr('opacity',.48).attr('filter',null);
-      return;
-    }
-    all.filter(d=>d.ki!==kw).interrupt().transition().duration(280).attr('opacity',.035).attr('filter',null);
-    const active=all.filter(d=>d.ki===kw);
-    active.interrupt().attr('cx',d=>d.fx-175).attr('cy',d=>d.fy-105).attr('opacity',0).attr('filter','url(#gl)');
-    active.transition().duration(780).ease(d3.easeCubicOut).delay((_,i)=>Math.min(i*3.8,190)).attr('cx',d=>d.fx).attr('cy',d=>d.fy).attr('opacity',.92);
+
+    // section highlights
+    KW.forEach((_,i) => { const e=document.getElementById(`li${i}`); if(e) e.style.opacity=(kw===-1||i===kw)?1:.22; });
+    document.querySelectorAll('.sec').forEach((s,i) => {
+      const sk=SECS[i].kw;
+      s.style.background      = i===kw+1 ? CL[sk]+'09' : 'transparent';
+      s.style.borderLeftColor = i===kw+1 ? CL[sk]+'77' : sk>=0 ? CL[sk]+'22' : 'transparent';
+    });
   }
 
   function switchView(mode) {
-    if (mode === viewMode) return;
+    if (mode===viewMode) return;
     viewMode = mode;
-    document.getElementById('btn-month').classList.toggle('active', mode === 'month');
-    document.getElementById('btn-day').classList.toggle('active', mode === 'day');
+    document.getElementById('btn-month').classList.toggle('active', mode==='month');
+    document.getElementById('btn-day').classList.toggle('active',   mode==='day');
     updateStats();
-    const k = curKw; curKw = -99;
-    build();
-    setTimeout(() => applyViz(k), 60);
+    computeTargets(cwEl.clientWidth, cwEl.clientHeight);
   }
 
-  build();
-  window.addEventListener('resize',()=>{ const k=curKw; curKw=-99; build(); setTimeout(()=>applyViz(k),60); });
-  sel.addEventListener('change',()=>applyViz(parseInt(sel.value)));
+  /* ── Events ──────────────────────────────────────── */
+  sel.addEventListener('change', () => applyFilter(parseInt(sel.value)));
   document.getElementById('btn-month').addEventListener('click', () => switchView('month'));
   document.getElementById('btn-day').addEventListener('click',   () => switchView('day'));
 
   const SH=320;
-  window.addEventListener('scroll',()=>{
-    const idx=Math.min(Math.floor(window.scrollY/SH), SECS.length-1);
-    const kw=SECS[idx].kw; sel.value=kw; applyViz(kw);
+  window.addEventListener('scroll', () => {
+    const idx = Math.min(Math.floor(window.scrollY/SH), SECS.length-1);
+    const kw  = SECS[idx].kw; sel.value=kw; applyFilter(kw);
   });
-  setTimeout(()=>applyViz(-1),90);
+
+  // Initial reveal
+  setTimeout(() => applyFilter(-1), 100);
 }
 
 /* ══════════════════════════════════════════════════════
