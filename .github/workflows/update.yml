@@ -1,0 +1,39 @@
+name: Actualizar datos Nash
+
+on:
+  # Manual: desde la pestaña Actions en GitHub
+  workflow_dispatch:
+
+  # Automático: todos los lunes a las 6am UTC
+  schedule:
+    - cron: '0 6 * * 1'
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Generar data.json
+        env:
+          QDRANT_URL:     ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        run: python generate_data.py
+
+      - name: Commit y push data.json
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.json
+          git diff --staged --quiet || git commit -m "chore: actualizar data.json [skip ci]"
+          git push
