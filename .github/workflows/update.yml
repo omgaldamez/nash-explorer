@@ -1,12 +1,12 @@
 name: Actualizar datos Nash
 
 on:
-  # Manual: desde la pestaña Actions en GitHub
   workflow_dispatch:
-
-  # Automático: todos los lunes a las 6am UTC
   schedule:
     - cron: '0 6 * * 1'
+
+permissions:
+  contents: write
 
 jobs:
   update-data:
