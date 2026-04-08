@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nash — Keyword Explorer</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #07001a; font-family: 'Courier New', monospace; color: #aaa; overflow-x: hidden; }
+
+/* ── LOADING ─────────────────────────────────────────── */
+#loading {
+  position: fixed; inset: 0; background: #07001a;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 999; gap: 16px; transition: opacity .5s;
+}
+#loading-text { font-size: 10px; letter-spacing: 4px; text-transform: uppercase; color: #ffffff44; }
+.spinner {
+  width: 22px; height: 22px;
+  border: 2px solid #ffffff10; border-top-color: #cc44ff;
+  border-radius: 50%; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#error-msg {
+  display: none; color: #ff4455; font-size: 10px;
+  letter-spacing: 1.5px; text-align: center;
+  max-width: 400px; line-height: 1.8; padding: 0 20px;
+}
+
+/* ── STICKY CHART ────────────────────────────────────── */
+#cw {
+  position: sticky; top: 0; height: 272px;
+  background: #07001a; border-bottom: 1px solid #ffffff09; z-index: 10;
+}
+#ctrl {
+  position: absolute; top: 10px; left: 14px;
+  display: flex; align-items: center; gap: 10px; z-index: 5;
+}
+select {
+  background: #10001c; border: 1px solid #ffffff18; color: #cc55ff;
+  padding: 4px 9px; font-family: 'Courier New', monospace;
+  font-size: 9px; letter-spacing: 1.5px; cursor: pointer;
+  outline: none; text-transform: uppercase;
+}
+select option { background: #10001c; }
+#klbl { font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase; transition: color .4s; }
+#stats {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  font-size: 9px; letter-spacing: 2px; color: #ffffff1a;
+  text-transform: uppercase; white-space: nowrap;
+}
+#leg {
+  position: absolute; top: 8px; right: 14px;
+  display: flex; flex-direction: column; gap: 3px; z-index: 5;
+}
+.li { display: flex; align-items: center; gap: 6px; cursor: pointer; transition: opacity .35s; }
+.ld { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.lt { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+/* ── SCROLL SECTIONS ─────────────────────────────────── */
+.sec {
+  height: 320px; padding: 38px 52px;
+  border-top: 1px solid #ffffff06;
+  display: flex; align-items: center;
+  transition: background .5s, border-left-color .5s;
+  border-left: 2px solid transparent;
+}
+.stag  { font-size: 9px; text-transform: uppercase; letter-spacing: 4px; margin-bottom: 12px; opacity: .55; }
+.stit  { font-size: 27px; font-weight: bold; margin-bottom: 14px; line-height: 1.1; }
+.sbody { font-size: 12px; line-height: 1.85; color: #ffffff18; max-width: 340px; }
+
+/* ── TOOLTIP ─────────────────────────────────────────── */
+#tooltip {
+  position: fixed; pointer-events: none;
+  background: #1a003a; border: 1px solid #ffffff18;
+  padding: 10px 14px; font-size: 10px; line-height: 1.7;
+  max-width: 280px; z-index: 500; opacity: 0;
+  transition: opacity .2s; letter-spacing: .5px;
+}
+#tooltip .t-frase  { color: #ffffffcc; margin-bottom: 6px; font-style: italic; }
+#tooltip .t-meta   { color: #ffffff44; font-size: 9px; }
+
+body::-webkit-scrollbar { width: 3px; }
+body::-webkit-scrollbar-thumb { background: #ffffff18; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div id="loading-text">Cargando datos...</div>
+  <div id="error-msg"></div>
+</div>
+
+<div id="tooltip">
+  <div class="t-frase" id="t-frase"></div>
+  <div class="t-meta"  id="t-meta"></div>
+</div>
+
+<div id="cw">
+  <div id="ctrl">
+    <select id="sel"><option value="-1">◈ Todos los keywords</option></select>
+    <span id="klbl"></span>
+  </div>
+  <div id="stats"></div>
+  <div id="leg"></div>
+  <svg id="chart"></svg>
+</div>
+<div id="sections"></div>
+<div style="height: 480px;"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+
+/* ══════════════════════════════════════════════════════
+   CONFIGURACIÓN
+   ══════════════════════════════════════════════════════ */
+const MAX_KW  = 8;
+const PALETTE = ['#ff00cc','#00e5a0','#ffaa00','#ff4455','#4499ff','#bb44ff','#ff8844','#00ccff'];
+
+// Textos de las secciones de scroll
+// TODO: reemplazar Lorem con análisis real por keyword
+const TEXTS = {
+  intro: 'Fragmentos de conferencias de prensa indexados por keyword y fecha. Desplázate para explorar cada tema o filtra desde el dropdown.',
+  // 'corrupción': 'Análisis sobre corrupción...',
+  // 'trump': 'Análisis sobre Trump...',
+};
+
+/* ══════════════════════════════════════════════════════
+   CARGA DE DATOS — fetch data.json (mismo origen, sin CORS)
+   ══════════════════════════════════════════════════════ */
+async function loadData() {
+  const res = await fetch('data.json');
+  if (!res.ok) throw new Error(`No se pudo cargar data.json (${res.status})`);
+  return res.json();
+}
+
+/* ══════════════════════════════════════════════════════
+   PROCESAMIENTO
+   ══════════════════════════════════════════════════════ */
+function processData(raw) {
+  // Contar keywords (separados por |)
+  const kwCount = {};
+  raw.forEach(p => {
+    p.keyword.split('|').forEach(k => {
+      const kk = k.trim().toLowerCase();
+      kwCount[kk] = (kwCount[kk] || 0) + 1;
+    });
+  });
+
+  // Top N por frecuencia
+  const KW = Object.entries(kwCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, MAX_KW)
+    .map(([k]) => k);
+
+  // Meses únicos ordenados
+  const moSet = new Set();
+  raw.forEach(p => {
+    const pts = p.fecha.split('/');
+    if (pts.length === 3) moSet.add(`${pts[2]}-${pts[1].padStart(2,'0')}`);
+  });
+  const MO_KEYS  = [...moSet].sort();
+  const MES_ES   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const MO_LABEL = MO_KEYS.map(k => {
+    const [y, m] = k.split('-');
+    return `${MES_ES[+m - 1]} ${y.slice(2)}`;
+  });
+
+  // Dots
+  const rng  = makeRng(42);
+  const dots = [];
+  raw.forEach(p => {
+    const pKws = p.keyword.split('|').map(k => k.trim().toLowerCase());
+    const ki   = KW.findIndex(k => pKws.includes(k));
+    if (ki < 0) return;
+    const pts = p.fecha.split('/');
+    if (pts.length < 3) return;
+    const moKey = `${pts[2]}-${pts[1].padStart(2,'0')}`;
+    const mi    = MO_KEYS.indexOf(moKey);
+    if (mi < 0) return;
+    dots.push({ id: dots.length, ki, mi, rx: rng()-.5, ry: rng(), score: p.score, frase: p.frase, fecha: p.fecha, subject: p.subject });
+  });
+
+  // Secciones
+  const SECS = [
+    { kw:-1, tag:'Panorama general', title:'Nash — Análisis de discurso', body: TEXTS.intro },
+    ...KW.map((kw, i) => ({
+      kw: i,
+      tag: `${kwCount[kw]} fragmentos`,
+      title: kw.charAt(0).toUpperCase() + kw.slice(1),
+      body: TEXTS[kw] || 'Lorem ipsum dolor sit amet consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.'
+    }))
+  ];
+
+  return { KW, MO_LABEL, dots, SECS };
+}
+
+function makeRng(seed) {
+  let s = seed|0;
+  return () => {
+    s = (s+0x6D2B79F5)|0;
+    let t = Math.imul(s^s>>>15,1|s);
+    t = (t+Math.imul(t^t>>>7,61|t))^t;
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
+}
+
+/* ══════════════════════════════════════════════════════
+   VISUALIZACIÓN
+   ══════════════════════════════════════════════════════ */
+function initViz({ KW, MO_LABEL, dots, SECS }) {
+  const CL  = KW.map((_, i) => PALETTE[i % PALETTE.length]);
+  const tip = document.getElementById('tooltip');
+
+  // Secciones de scroll
+  const secEl = document.getElementById('sections');
+  SECS.forEach((s, i) => {
+    const c = s.kw >= 0 ? CL[s.kw] : '#ffffff44';
+    const d = document.createElement('div');
+    d.className = 'sec'; d.dataset.i = i;
+    d.style.borderLeftColor = s.kw >= 0 ? CL[s.kw]+'22' : 'transparent';
+    d.innerHTML = `<div>
+      <div class="stag" style="color:${c}">${s.tag}</div>
+      <div class="stit" style="color:${c}">${s.title}</div>
+      <div class="sbody">${s.body}</div>
+    </div>`;
+    secEl.appendChild(d);
+  });
+
+  // Leyenda + Dropdown
+  const leg = document.getElementById('leg');
+  const sel = document.getElementById('sel');
+  KW.forEach((kw, i) => {
+    const li = document.createElement('div');
+    li.className='li'; li.id=`li${i}`;
+    li.innerHTML=`<div class="ld" style="background:${CL[i]}"></div><span class="lt" style="color:${CL[i]}">${kw}</span>`;
+    li.onclick = () => { sel.value=i; applyViz(i); };
+    leg.appendChild(li);
+    const o = document.createElement('option');
+    o.value=i; o.textContent=`● ${kw}`; sel.appendChild(o);
+  });
+
+  document.getElementById('stats').textContent =
+    `${dots.length.toLocaleString()} fragmentos · ${MO_LABEL.length} meses`;
+
+  // D3 chart
+  const svg = d3.select('#chart');
+  const cw  = document.getElementById('cw');
+  const M   = { top:32, right:14, bottom:38, left:10 };
+  let xSc, W, H, DR, curKw=-99;
+
+  function build() {
+    W  = cw.clientWidth;
+    H  = cw.clientHeight;
+    DR = Math.max(2.5, Math.min(4.5, W/290));
+    xSc = d3.scaleBand().domain(d3.range(MO_LABEL.length)).range([M.left, W-M.right]).padding(.15);
+    const bw = xSc.bandwidth();
+    dots.forEach(d => {
+      d.fx = xSc(d.mi) + bw/2 + d.rx*bw*.62;
+      d.fy = M.top + 4 + d.ry*(H-M.top-M.bottom-8);
+    });
+    svg.selectAll('*').remove();
+
+    // Glow filter
+    const defs = svg.append('defs');
+    const f = defs.append('filter').attr('id','gl').attr('x','-40%').attr('y','-40%').attr('width','180%').attr('height','180%');
+    f.append('feGaussianBlur').attr('in','SourceGraphic').attr('stdDeviation',2.2).attr('result','b');
+    const mg = f.append('feMerge');
+    mg.append('feMergeNode').attr('in','b'); mg.append('feMergeNode').attr('in','SourceGraphic');
+
+    // Column bands + labels
+    d3.range(MO_LABEL.length).forEach(i => {
+      if (i%2===0) svg.append('rect').attr('x',xSc(i)).attr('y',M.top).attr('width',xSc.bandwidth()).attr('height',H-M.top-M.bottom).attr('fill','#ffffff02');
+      svg.append('text').attr('x',xSc(i)+xSc.bandwidth()/2).attr('y',H-M.bottom+14)
+        .attr('text-anchor','middle').attr('fill','#ffffff1e')
+        .attr('font-size',Math.max(7.5,Math.min(10,W/170))).attr('font-family','Courier New')
+        .text(MO_LABEL[i]);
+    });
+
+    // Dots
+    svg.selectAll('.dot').data(dots, d=>d.id).join('circle')
+      .attr('class','dot')
+      .attr('cx',d=>d.fx).attr('cy',d=>d.fy)
+      .attr('r',DR).attr('fill',d=>CL[d.ki]).attr('opacity',.12)
+      .on('mouseover', (event, d) => {
+        document.getElementById('t-frase').textContent = `"${d.frase.slice(0,120)}${d.frase.length>120?'...':''}"`;
+        document.getElementById('t-meta').textContent  = `${d.fecha} · ${d.subject} · score ${d.score}`;
+        tip.style.opacity = 1;
+      })
+      .on('mousemove', event => {
+        tip.style.left = `${Math.min(event.clientX+14, window.innerWidth-300)}px`;
+        tip.style.top  = `${event.clientY-60}px`;
+      })
+      .on('mouseout', () => tip.style.opacity = 0);
+  }
+
+  function applyViz(kw) {
+    if (kw===curKw) return; curKw=kw;
+    const all = svg.selectAll('.dot');
+    const lbl = document.getElementById('klbl');
+    lbl.textContent = kw>=0 ? KW[kw] : '';
+    lbl.style.color = kw>=0 ? CL[kw]+'88' : '';
+    KW.forEach((_,i)=>{ const e=document.getElementById(`li${i}`); if(e) e.style.opacity=(kw===-1||i===kw)?1:.22; });
+    document.querySelectorAll('.sec').forEach((s,i)=>{
+      const sk=SECS[i].kw;
+      s.style.background     = i===kw+1 ? CL[sk]+'09' : 'transparent';
+      s.style.borderLeftColor= i===kw+1 ? CL[sk]+'77' : sk>=0 ? CL[sk]+'22' : 'transparent';
+    });
+    if (kw===-1) {
+      all.interrupt().transition().duration(650).ease(d3.easeCubicOut).attr('cx',d=>d.fx).attr('cy',d=>d.fy).attr('opacity',.48).attr('filter',null);
+      return;
+    }
+    all.filter(d=>d.ki!==kw).interrupt().transition().duration(280).attr('opacity',.035).attr('filter',null);
+    const active=all.filter(d=>d.ki===kw);
+    active.interrupt().attr('cx',d=>d.fx-175).attr('cy',d=>d.fy-105).attr('opacity',0).attr('filter','url(#gl)');
+    active.transition().duration(780).ease(d3.easeCubicOut).delay((_,i)=>Math.min(i*3.8,190)).attr('cx',d=>d.fx).attr('cy',d=>d.fy).attr('opacity',.92);
+  }
+
+  build();
+  window.addEventListener('resize',()=>{ const k=curKw; curKw=-99; build(); setTimeout(()=>applyViz(k),60); });
+  sel.addEventListener('change',()=>applyViz(parseInt(sel.value)));
+  const SH=320;
+  window.addEventListener('scroll',()=>{
+    const idx=Math.min(Math.floor(window.scrollY/SH), SECS.length-1);
+    const kw=SECS[idx].kw; sel.value=kw; applyViz(kw);
+  });
+  setTimeout(()=>applyViz(-1),90);
+}
+
+/* ══════════════════════════════════════════════════════
+   BOOTSTRAP
+   ══════════════════════════════════════════════════════ */
+(async () => {
+  try {
+    document.getElementById('loading-text').textContent = 'Cargando datos...';
+    const raw       = await loadData();
+    const processed = processData(raw);
+    document.getElementById('loading').style.opacity = 0;
+    setTimeout(() => document.getElementById('loading').style.display='none', 500);
+    initViz(processed);
+  } catch (err) {
+    document.getElementById('loading-text').textContent = 'Error al cargar';
+    document.getElementById('error-msg').style.display = 'block';
+    document.getElementById('error-msg').textContent   = err.message;
+    document.querySelector('.spinner').style.display   = 'none';
+  }
+})();
+
+</script>
+</body>
+</html>
