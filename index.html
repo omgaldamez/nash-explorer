@@ -27,48 +27,81 @@ body { background: #07001a; font-family: 'Courier New', monospace; color: #aaa; 
   max-width: 400px; line-height: 1.8; padding: 0 20px;
 }
 
+/* ── STICKY WRAPPER ──────────────────────────────────── */
 #cw {
-  position: sticky; top: 0; height: 272px;
+  position: sticky; top: 0;
   background: #07001a; border-bottom: 1px solid #ffffff09;
   z-index: 10; overflow: hidden;
+  display: flex; flex-direction: column;
 }
-#ctrl {
-  position: absolute; top: 10px; left: 14px;
-  display: flex; align-items: center; gap: 10px; z-index: 5;
+
+/* ── TOOLBAR ─────────────────────────────────────────── */
+#toolbar {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 6px; padding: 8px 12px;
+  border-bottom: 1px solid #ffffff08;
+  background: #07001a; z-index: 5; flex-shrink: 0;
 }
+#toolbar-left  { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
+#toolbar-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+
 select {
   background: #10001c; border: 1px solid #ffffff18; color: #cc55ff;
   padding: 4px 9px; font-family: 'Courier New', monospace;
   font-size: 9px; letter-spacing: 1.5px; cursor: pointer;
-  outline: none; text-transform: uppercase;
+  outline: none; text-transform: uppercase; max-width: 160px;
 }
 select option { background: #10001c; }
-#klbl { font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase; transition: color .4s; }
+#klbl { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; transition: color .4s; white-space: nowrap; }
 
 #view-toggle, #mode-toggle { display: flex; gap: 2px; }
 #view-toggle button, #mode-toggle button {
   background: #10001c; border: 1px solid #ffffff18; color: #ffffff44;
-  padding: 4px 9px; font-family: 'Courier New', monospace;
-  font-size: 9px; letter-spacing: 1.5px; cursor: pointer;
+  padding: 4px 8px; font-family: 'Courier New', monospace;
+  font-size: 9px; letter-spacing: 1px; cursor: pointer;
   text-transform: uppercase; outline: none;
   transition: color .2s, border-color .2s, background .2s;
+  white-space: nowrap;
 }
 #view-toggle button.active { color: #cc55ff; border-color: #cc55ff44; background: #1e003a; }
 #mode-toggle button.active  { color: #00e5a0; border-color: #00e5a044; background: #001a12; }
 
+/* ── STATS ───────────────────────────────────────────── */
 #stats {
-  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-  font-size: 9px; letter-spacing: 2px; color: #ffffff1a;
+  font-size: 9px; letter-spacing: 2px; color: #ffffff22;
   text-transform: uppercase; white-space: nowrap; pointer-events: none;
 }
-#leg {
-  position: absolute; top: 8px; right: 14px;
-  display: flex; flex-direction: column; gap: 3px; z-index: 5;
+
+/* ── CHART AREA: altura fija 220px ───────────────────── */
+#chart-area {
+  position: relative; height: 220px; flex-shrink: 0;
 }
-.li { display: flex; align-items: center; gap: 6px; cursor: pointer; transition: opacity .35s; }
+#chart-area canvas { position: absolute; top: 0; left: 0; }
+
+/* ── LEYENDA — barra horizontal bajo el chart ─────────── */
+#leg {
+  display: flex; flex-direction: row; flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px; padding: 7px 14px;
+  border-top: 1px solid #ffffff08;
+  background: #07001a; flex-shrink: 0; z-index: 5;
+}
+.li { display: flex; align-items: center; gap: 5px; cursor: pointer; transition: opacity .35s; }
 .ld { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .lt { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
-#cw canvas { position: absolute; top: 0; left: 0; }
+
+/* ── MOBILE ──────────────────────────────────────────── */
+@media (max-width: 600px) {
+  #toolbar { gap: 5px; padding: 7px 10px; }
+  #toolbar-left { gap: 5px; }
+  select { max-width: 120px; font-size: 8px; padding: 4px 7px; }
+  #view-toggle button, #mode-toggle button { font-size: 8px; padding: 4px 6px; letter-spacing: 0.3px; }
+  #stats { display: none; }
+  #klbl  { display: none; }
+  #chart-area { height: 180px; }
+  #leg { gap: 4px 10px; padding: 6px 10px; }
+  .lt  { font-size: 8px; }
+}
 
 .sec {
   height: 320px; padding: 38px 52px;
@@ -109,19 +142,24 @@ body::-webkit-scrollbar-thumb { background: #ffffff18; border-radius: 2px; }
 </div>
 
 <div id="cw">
-  <div id="ctrl">
-    <select id="sel"><option value="-1">◈ Todos los keywords</option></select>
-    <span id="klbl"></span>
-    <div id="view-toggle">
-      <button id="btn-month" class="active">Meses</button>
-      <button id="btn-day">Días</button>
+  <div id="toolbar">
+    <div id="toolbar-left">
+      <select id="sel"><option value="-1">◈ Todos los keywords</option></select>
+      <span id="klbl"></span>
+      <div id="view-toggle">
+        <button id="btn-month" class="active">Meses</button>
+        <button id="btn-day">Días</button>
+      </div>
+      <div id="mode-toggle">
+        <button id="btn-kw" class="active">Keywords</button>
+        <button id="btn-time">Temporal</button>
+      </div>
     </div>
-    <div id="mode-toggle">
-      <button id="btn-kw"   class="active">Keywords</button>
-      <button id="btn-time">Temporal</button>
+    <div id="toolbar-right">
+      <div id="stats"></div>
     </div>
   </div>
-  <div id="stats"></div>
+  <div id="chart-area"></div>
   <div id="leg"></div>
 </div>
 <div id="sections"></div>
@@ -250,13 +288,15 @@ function processData({ kw, kwN, mo, dayMs, dots: raw }) {
    VIZ
    ══════════════════════════════════════════════════════ */
 function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
-  const CL     = KW.map((_,i) => PALETTE[i % PALETTE.length]);
-  const cwEl   = document.getElementById('cw');
+  const CL       = KW.map((_,i) => PALETTE[i % PALETTE.length]);
+  const cwEl     = document.getElementById('cw');
+  const chartEl  = document.getElementById('chart-area'); // p5 vive aquí
   let viewMode = 'month';
   let navMode  = 'kw';      // 'kw' | 'time'
   let curKw    = -99;
   let curMo    = -99;
-  const M      = { top:32, right:14, bottom:38, left:10 };
+  // top reducido: toolbar ya está fuera del canvas
+  const M      = { top:12, right:14, bottom:36, left:10 };
 
   // Construir secciones temporales a partir de MO_LABEL
   const SECS_TIME = [
@@ -318,7 +358,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
   });
 
   function updateLegVisibility() {
-    leg.style.display  = navMode==='kw' ? '' : 'none';
+    leg.style.display  = '';   // siempre visible
     sel.style.display  = navMode==='kw' ? '' : 'none';
     document.getElementById('klbl').style.display = navMode==='kw' ? '' : 'none';
   }
@@ -372,6 +412,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
   const NUM_PT = 55;
 
   new p5(p => {
+    // p5 opera sobre chartEl, no sobre cwEl
 
     /* ── Partículas decorativas ────────────────────── */
     class Particle {
@@ -397,7 +438,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     let hoveredDot = null;
 
     p.setup = () => {
-      const cnv = p.createCanvas(cwEl.clientWidth, cwEl.clientHeight);
+      const cnv = p.createCanvas(chartEl.clientWidth, chartEl.clientHeight);
       cnv.style('position','absolute'); cnv.style('top','0'); cnv.style('left','0');
       p.pixelDensity(Math.min(window.devicePixelRatio, 2));
       p.frameRate(30);
@@ -518,7 +559,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     /* ── Hover ──────────────────────────────────────── */
     p.mouseMoved = () => {
       if (p.mouseY<0||p.mouseY>H||p.mouseX<0||p.mouseX>W) { hideTip(); return; }
-      const rect = cwEl.getBoundingClientRect();
+      const rect = chartEl.getBoundingClientRect();
       let best=null, bestD=12;
       for (const d of dots) {
         if (d.targetAlpha<10) continue;
@@ -544,19 +585,19 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     };
 
     p.windowResized = () => {
-      W=cwEl.clientWidth; H=cwEl.clientHeight;
+      W=chartEl.clientWidth; H=chartEl.clientHeight;
       p.resizeCanvas(W, H);
       DR=dotRadius(W);
       computeTargets(W, H);
       settled=false; p.frameRate(30);
     };
 
-    cwEl._wake = (kwForGlow) => {
+    chartEl._wake = (kwForGlow) => {
       activeKwForGlow = kwForGlow !== undefined ? kwForGlow : activeKwForGlow;
       settled=false; p.frameRate(30);
     };
 
-  }, cwEl);
+  }, chartEl);
 
   /* ── Filter ──────────────────────────────────────── */
   function applyFilter(kw) {
@@ -600,7 +641,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
       s.style.background      = i===kw+1 ? CL[sk]+'09' : 'transparent';
       s.style.borderLeftColor = i===kw+1 ? CL[sk]+'77' : sk>=0 ? CL[sk]+'22' : 'transparent';
     });
-    cwEl._wake?.(kw);
+    chartEl._wake?.(kw);
   }
 
   function switchView(mode) {
@@ -609,8 +650,8 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     document.getElementById('btn-month').classList.toggle('active', mode==='month');
     document.getElementById('btn-day').classList.toggle('active',   mode==='day');
     updateStats();
-    computeTargets(cwEl.clientWidth, cwEl.clientHeight);
-    cwEl._wake?.();
+    computeTargets(chartEl.clientWidth, chartEl.clientHeight);
+    chartEl._wake?.();
   }
 
   /* ── Filtro temporal: highlight por mes ─────────── */
@@ -643,7 +684,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
       s.style.background      = i===mo+1 ? '#00e5a009' : 'transparent';
       s.style.borderLeftColor = i===mo+1 ? '#00e5a077' : i>0 ? '#00e5a022' : 'transparent';
     });
-    cwEl._wake?.(-1); // no keyword-specific glow en modo temporal
+    chartEl._wake?.(-1); // no keyword-specific glow en modo temporal
   }
 
   /* ── Cambio de modo nav ──────────────────────────── */
