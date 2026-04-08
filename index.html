@@ -45,8 +45,8 @@ select {
 select option { background: #10001c; }
 #klbl { font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase; transition: color .4s; }
 
-#view-toggle { display: flex; gap: 2px; }
-#view-toggle button {
+#view-toggle, #mode-toggle { display: flex; gap: 2px; }
+#view-toggle button, #mode-toggle button {
   background: #10001c; border: 1px solid #ffffff18; color: #ffffff44;
   padding: 4px 9px; font-family: 'Courier New', monospace;
   font-size: 9px; letter-spacing: 1.5px; cursor: pointer;
@@ -54,6 +54,7 @@ select option { background: #10001c; }
   transition: color .2s, border-color .2s, background .2s;
 }
 #view-toggle button.active { color: #cc55ff; border-color: #cc55ff44; background: #1e003a; }
+#mode-toggle button.active  { color: #00e5a0; border-color: #00e5a044; background: #001a12; }
 
 #stats {
   position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
@@ -78,7 +79,7 @@ select option { background: #10001c; }
 }
 .stag  { font-size: 9px; text-transform: uppercase; letter-spacing: 4px; margin-bottom: 12px; opacity: .55; }
 .stit  { font-size: 27px; font-weight: bold; margin-bottom: 14px; line-height: 1.1; }
-.sbody { font-size: 12px; line-height: 1.85; color: #ffffff18; max-width: 340px; }
+.sbody { font-size: 12px; line-height: 1.85; color: #ffffff38; max-width: 340px; }
 
 #tooltip {
   position: fixed; pointer-events: none;
@@ -115,6 +116,10 @@ body::-webkit-scrollbar-thumb { background: #ffffff18; border-radius: 2px; }
       <button id="btn-month" class="active">Meses</button>
       <button id="btn-day">Días</button>
     </div>
+    <div id="mode-toggle">
+      <button id="btn-kw"   class="active">Keywords</button>
+      <button id="btn-time">Temporal</button>
+    </div>
   </div>
   <div id="stats"></div>
   <div id="leg"></div>
@@ -127,6 +132,7 @@ body::-webkit-scrollbar-thumb { background: #ffffff18; border-radius: 2px; }
 /* ══════════════════════════════════════════════════════
    CONFIG
    ══════════════════════════════════════════════════════ */
+const MAX_KW  = 8;
 const PALETTE = ['#ff00cc','#00e5a0','#ffaa00','#ff4455','#4499ff','#bb44ff','#ff8844','#00ccff'];
 const MES_ES  = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 const PAL_RGB = PALETTE.map(h => ({
@@ -139,12 +145,67 @@ const TEXTS = {
 };
 
 /* ══════════════════════════════════════════════════════
-   CARGA — data.json pre-procesado
+   CARGA — detecta formato nuevo {kw,mo,...} o viejo array
    ══════════════════════════════════════════════════════ */
+function makeRng(seed) {
+  let s = seed|0;
+  return () => {
+    s = (s+0x6D2B79F5)|0;
+    let t = Math.imul(s^s>>>15,1|s);
+    t = (t+Math.imul(t^t>>>7,61|t))^t;
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
+}
+
+function normalizeOldFormat(arr) {
+  // arr: [{keyword, fecha, subject, score, frase}, ...]
+  const kwCount = {};
+  arr.forEach(p => { const k=p.keyword; if(k) kwCount[k]=(kwCount[k]||0)+1; });
+  const KW = Object.entries(kwCount).sort((a,b)=>b[1]-a[1]).slice(0,MAX_KW).map(([k])=>k);
+  const kwIdx = Object.fromEntries(KW.map((k,i)=>[k,i]));
+
+  const moSet = new Set();
+  arr.forEach(p => {
+    const pts = (p.fecha||'').split('/');
+    if (pts.length===3) moSet.add(`${pts[2]}-${pts[1].padStart(2,'0')}`);
+  });
+  const moKeys  = [...moSet].sort();
+  const moLabel = moKeys.map(k => { const [y,m]=k.split('-'); return `${MES_ES[+m-1]} ${y.slice(2)}`; });
+  const moIdx   = Object.fromEntries(moKeys.map((k,i)=>[k,i]));
+
+  const daySet = new Set();
+  arr.forEach(p => {
+    const pts=(p.fecha||'').split('/');
+    if(pts.length===3){ const ms=Date.UTC(+pts[2],+pts[1]-1,+pts[0]); daySet.add(ms); }
+  });
+  const dayMs = [...daySet].sort((a,b)=>a-b);
+
+  const rng  = makeRng(42);
+  const dots = []; const kwN = new Array(KW.length).fill(0);
+  arr.forEach(p => {
+    const ki = kwIdx[p.keyword]; if(ki===undefined){ rng(); rng(); return; }
+    const pts=(p.fecha||'').split('/'); if(pts.length<3){ rng(); rng(); return; }
+    const moKey=`${pts[2]}-${pts[1].padStart(2,'0')}`;
+    const mi=moIdx[moKey]; if(mi===undefined){ rng(); rng(); return; }
+    const ms=Date.UTC(+pts[2],+pts[1]-1,+pts[0]);
+    const rx=rng()-.5, ry=rng();
+    kwN[ki]++;
+    dots.push([ki, mi, ms, +rx.toFixed(4), +ry.toFixed(4),
+      +(p.score||0), p.subject||'', (p.frase||'').slice(0,160)]);
+  });
+
+  return { kw: KW, kwN, mo: moLabel, dayMs, dots };
+}
+
 async function loadData() {
   const res = await fetch('data.json');
   if (!res.ok) throw new Error(`No se pudo cargar data.json (${res.status})`);
-  return res.json();
+  const json = await res.json();
+  // Formato nuevo: objeto con propiedad "kw"
+  if (!Array.isArray(json) && json.kw) return json;
+  // Formato viejo: array plano
+  if (Array.isArray(json)) return normalizeOldFormat(json);
+  throw new Error('Formato de data.json no reconocido');
 }
 
 /* ══════════════════════════════════════════════════════
@@ -156,7 +217,7 @@ function utcMsToFecha(ms) {
 }
 
 function processData({ kw, kwN, mo, dayMs, dots: raw }) {
-  const KW      = kw;
+  const KW       = kw;
   const MO_LABEL = mo;
   const DAY_KEYS = dayMs.map(ms => new Date(ms));
 
@@ -192,23 +253,56 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
   const CL     = KW.map((_,i) => PALETTE[i % PALETTE.length]);
   const cwEl   = document.getElementById('cw');
   let viewMode = 'month';
+  let navMode  = 'kw';      // 'kw' | 'time'
   let curKw    = -99;
+  let curMo    = -99;
   const M      = { top:32, right:14, bottom:38, left:10 };
 
-  /* ── Secciones de scroll ─────────────────────────── */
+  // Construir secciones temporales a partir de MO_LABEL
+  const SECS_TIME = [
+    { mo:-1, tag:'Panorama general', title:'Nash — Línea de tiempo',
+      body:'Todos los fragmentos ordenados cronológicamente. Desplázate para recorrer mes a mes.' },
+    ...MO_LABEL.map((lbl, i) => ({
+      mo: i, tag: `${lbl}`,
+      title: lbl,
+      body: 'Lorem ipsum dolor sit amet consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam quis nostrud exercitation.',
+    }))
+  ];
+
+  /* ── Render secciones ────────────────────────────── */
   const secEl = document.getElementById('sections');
-  SECS.forEach((s, i) => {
-    const c  = s.kw>=0 ? CL[s.kw] : '#ffffff44';
-    const el = document.createElement('div');
-    el.className='sec'; el.dataset.i=i;
-    el.style.borderLeftColor = s.kw>=0 ? CL[s.kw]+'22' : 'transparent';
-    el.innerHTML=`<div>
-      <div class="stag" style="color:${c}">${s.tag}</div>
-      <div class="stit" style="color:${c}">${s.title}</div>
-      <div class="sbody">${s.body}</div>
-    </div>`;
-    secEl.appendChild(el);
-  });
+
+  function renderSections() {
+    secEl.innerHTML = '';
+    if (navMode === 'kw') {
+      SECS.forEach((s, i) => {
+        const c = s.kw>=0 ? CL[s.kw] : '#ffffff44';
+        const el = document.createElement('div');
+        el.className='sec'; el.dataset.i=i; el.dataset.mode='kw';
+        el.style.borderLeftColor = s.kw>=0 ? CL[s.kw]+'22' : 'transparent';
+        el.innerHTML=`<div>
+          <div class="stag" style="color:${c}">${s.tag}</div>
+          <div class="stit" style="color:${c}">${s.title}</div>
+          <div class="sbody">${s.body}</div>
+        </div>`;
+        secEl.appendChild(el);
+      });
+    } else {
+      SECS_TIME.forEach((s, i) => {
+        const c = '#00e5a0';
+        const el = document.createElement('div');
+        el.className='sec'; el.dataset.i=i; el.dataset.mode='time';
+        el.style.borderLeftColor = s.mo>=0 ? '#00e5a022' : 'transparent';
+        el.innerHTML=`<div>
+          <div class="stag" style="color:${c}44">${s.tag}</div>
+          <div class="stit" style="color:${c}">${s.title}</div>
+          <div class="sbody">${s.body}</div>
+        </div>`;
+        secEl.appendChild(el);
+      });
+    }
+  }
+  renderSections();
 
   /* ── Leyenda + Dropdown ──────────────────────────── */
   const leg = document.getElementById('leg');
@@ -222,6 +316,12 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     const o = document.createElement('option');
     o.value=i; o.textContent=`● ${kw}`; sel.appendChild(o);
   });
+
+  function updateLegVisibility() {
+    leg.style.display  = navMode==='kw' ? '' : 'none';
+    sel.style.display  = navMode==='kw' ? '' : 'none';
+    document.getElementById('klbl').style.display = navMode==='kw' ? '' : 'none';
+  }
 
   function updateStats() {
     const lbl = viewMode==='month' ? `${MO_LABEL.length} meses` : `${DAY_KEYS.length} días`;
@@ -269,7 +369,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
   /* ══════════════════════════════════════════════════
      p5 SKETCH
      ══════════════════════════════════════════════════ */
-  const NUM_PT = 60;
+  const NUM_PT = 55;
 
   new p5(p => {
 
@@ -282,7 +382,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
         this.vy   = (Math.random()-.5)*.22;
         this.r    = Math.random()*1.1+.3;
         this.ki   = Math.floor(Math.random()*KW.length);
-        this.base = Math.random()*28+6;
+        this.base = Math.random()*22+5;
         this.life = Math.random()*500+200;
         this.age  = 0;
       }
@@ -304,22 +404,28 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
       W=p.width; H=p.height; DR=dotRadius(W);
       for (let i=0; i<NUM_PT; i++) particles.push(new Particle(W, H));
       computeTargets(W, H);
-      // spawn dots desde el centro para el efecto de entrada
-      dots.forEach(d => { d.cx=W*.5; d.cy=H*.5; });
+      // Entrada: dots nacen dispersos en una nube central y vuelan a su lugar
+      dots.forEach(d => {
+        const angle = Math.random()*Math.PI*2;
+        const dist  = Math.random()*Math.min(W,H)*0.22;
+        d.cx = W*0.5 + Math.cos(angle)*dist;
+        d.cy = H*0.5 + Math.sin(angle)*dist;
+        d.alpha = 0;
+        d.delay = Math.floor(Math.random()*55); // stagger de hasta ~1.8s
+      });
     };
 
     function dotRadius(W) { return Math.max(2.2, Math.min(4, W/310)); }
 
-    /* ── Glow sin shadowBlur: círculos concéntricos ─ */
-    function drawGlowDot(x, y, r, rgb, alpha, active) {
-      if (active) {
-        // halo exterior
-        p.fill(rgb.r, rgb.g, rgb.b, alpha * 0.07);
-        p.circle(x, y, r * 9);
-        p.fill(rgb.r, rgb.g, rgb.b, alpha * 0.18);
-        p.circle(x, y, r * 5);
+    /* ── Glow sutil: solo en dots activos/filtrados ─ */
+    // Dos anillos tenues — solo cuando hay keyword activo
+    function drawGlowDot(x, y, r, rgb, alpha, glowing) {
+      if (glowing) {
+        p.fill(rgb.r, rgb.g, rgb.b, alpha * 0.04);
+        p.circle(x, y, r * 8);
+        p.fill(rgb.r, rgb.g, rgb.b, alpha * 0.11);
+        p.circle(x, y, r * 4);
       }
-      // núcleo
       p.fill(rgb.r, rgb.g, rgb.b, alpha);
       p.circle(x, y, r * 2);
     }
@@ -335,7 +441,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
         for (let i=0; i<MO_LABEL.length; i++) {
           const x = M.left + i*bw;
           if (i%2===0) { p.fill(255,255,255,4); p.rect(x, M.top, bw, H-M.top-M.bottom); }
-          p.fill(255,255,255,26); p.textAlign(p.CENTER);
+          p.fill(255,255,255,45); p.textAlign(p.CENTER);
           p.text(MO_LABEL[i], x+bw/2, H-M.bottom+14);
         }
       } else {
@@ -352,7 +458,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
             p.stroke(255,255,255,9); p.strokeWeight(1);
             p.line(x, M.top, x, H-M.bottom); p.noStroke();
           }
-          p.fill(255,255,255,26); p.textAlign(p.LEFT);
+          p.fill(255,255,255,45); p.textAlign(p.LEFT);
           p.text(`${MES_ES[mo.getMonth()]} ${String(mo.getFullYear()).slice(2)}`, x+4, H-M.bottom+14);
         });
       }
@@ -360,29 +466,42 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
 
     /* ── Dots ───────────────────────────────────────── */
     let settled = false;
+    // glowing = hay un keyword seleccionado (no "todos")
+    let activeKwForGlow = -1;
+
     function drawDots() {
       p.noStroke();
       let moving = false;
+
       dots.forEach(d => {
+        // Stagger de entrada/scatter: esperar delay frames antes de moverse
+        if (d.delay > 0) { d.delay--; moving = true; return; }
+
         const dxAbs = Math.abs(d.cx-d.tx), dyAbs = Math.abs(d.cy-d.ty), daAbs = Math.abs(d.alpha-d.targetAlpha);
-        if (dxAbs>0.4 || dyAbs>0.4 || daAbs>0.6) {
-          d.cx    += (d.tx-d.cx)*0.055;
-          d.cy    += (d.ty-d.cy)*0.055;
-          d.alpha += (d.targetAlpha-d.alpha)*0.07;
+        if (dxAbs>0.35 || dyAbs>0.35 || daAbs>0.5) {
+          // Lerp más lento para dots en background (suavidad), rápido para activos
+          const spd = d.targetAlpha > 50 ? 0.062 : 0.045;
+          d.cx    += (d.tx-d.cx)*spd;
+          d.cy    += (d.ty-d.cy)*spd;
+          d.alpha += (d.targetAlpha-d.alpha)*0.08;
           moving   = true;
         } else {
           d.cx=d.tx; d.cy=d.ty; d.alpha=d.targetAlpha;
         }
+
         if (d.alpha < 1) return;
-        drawGlowDot(d.cx, d.cy, DR, PAL_RGB[d.ki], d.alpha, d.targetAlpha > 100);
+
+        // Glow solo en dots del keyword activo, no en "mostrar todos"
+        const glowing = activeKwForGlow >= 0 && d.ki === activeKwForGlow;
+        drawGlowDot(d.cx, d.cy, DR, PAL_RGB[d.ki], d.alpha, glowing);
       });
+
       settled = !moving;
     }
 
     /* ── Partículas ─────────────────────────────────── */
     function drawParticles() {
       p.noStroke();
-      // Agrupar por color para reducir cambios de fill
       const byKi = Array.from({length: KW.length}, () => []);
       particles.forEach(pt => { pt.update(W, H); byKi[pt.ki].push(pt); });
       byKi.forEach((group, ki) => {
@@ -420,8 +539,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
       drawAxis();
       drawParticles();
       drawDots();
-      // Reducir fps cuando todo está quieto
-      if (settled) p.frameRate(12);
+      if (settled) p.frameRate(10);
       else          p.frameRate(30);
     };
 
@@ -433,8 +551,10 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
       settled=false; p.frameRate(30);
     };
 
-    // Exponer para que applyFilter/switchView puedan despertar el loop
-    cwEl._wake = () => { settled=false; p.frameRate(30); };
+    cwEl._wake = (kwForGlow) => {
+      activeKwForGlow = kwForGlow !== undefined ? kwForGlow : activeKwForGlow;
+      settled=false; p.frameRate(30);
+    };
 
   }, cwEl);
 
@@ -444,14 +564,43 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     const lbl = document.getElementById('klbl');
     lbl.textContent = kw>=0 ? KW[kw] : '';
     lbl.style.color = kw>=0 ? CL[kw]+'88' : '';
-    dots.forEach(d => { d.targetAlpha = (kw===-1||d.ki===kw) ? 200 : 8; });
+
+    if (kw === -1) {
+      // Mostrar todos: fade suave de izquierda a derecha
+      // Ordenar por posición X target para wave natural
+      const sorted = [...dots].sort((a, b) => a.tx - b.tx);
+      sorted.forEach((d, i) => {
+        d.targetAlpha = 115;
+        d.delay = Math.floor(i / sorted.length * 70); // 70 frames ≈ 2.3s a 30fps
+      });
+    } else {
+      // Keyword activo:
+      // - inactivos: desvanecer rápido
+      // - activos: scatter desde offset y volar de vuelta con stagger
+      let activeIdx = 0;
+      dots.forEach(d => {
+        if (d.ki !== kw) {
+          d.targetAlpha = 7;
+          d.delay = 0;
+        } else {
+          // Desplazar a posición offset → fly-in
+          d.cx = d.tx - 140 + (Math.random()-0.5)*100;
+          d.cy = d.ty - 90  + (Math.random()-0.5)*70;
+          d.alpha = 0;
+          d.targetAlpha = 210;
+          d.delay = Math.min(activeIdx * 2, 45);
+          activeIdx++;
+        }
+      });
+    }
+
     KW.forEach((_,i) => { const e=document.getElementById(`li${i}`); if(e) e.style.opacity=(kw===-1||i===kw)?1:.22; });
     document.querySelectorAll('.sec').forEach((s,i) => {
       const sk=SECS[i].kw;
       s.style.background      = i===kw+1 ? CL[sk]+'09' : 'transparent';
       s.style.borderLeftColor = i===kw+1 ? CL[sk]+'77' : sk>=0 ? CL[sk]+'22' : 'transparent';
     });
-    cwEl._wake?.();
+    cwEl._wake?.(kw);
   }
 
   function switchView(mode) {
@@ -464,17 +613,72 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     cwEl._wake?.();
   }
 
+  /* ── Filtro temporal: highlight por mes ─────────── */
+  function applyTimeMo(mo) {
+    if (mo===curMo) return; curMo=mo;
+    if (mo === -1) {
+      const sorted = [...dots].sort((a,b) => a.tx - b.tx);
+      sorted.forEach((d, i) => {
+        d.targetAlpha = 115;
+        d.delay = Math.floor(i / sorted.length * 70);
+      });
+    } else {
+      let activeIdx = 0;
+      dots.forEach(d => {
+        if (d.mi !== mo) {
+          d.targetAlpha = 7;
+          d.delay = 0;
+        } else {
+          d.cx = d.tx - 140 + (Math.random()-0.5)*100;
+          d.cy = d.ty - 90  + (Math.random()-0.5)*70;
+          d.alpha = 0;
+          d.targetAlpha = 210;
+          d.delay = Math.min(activeIdx * 2, 45);
+          activeIdx++;
+        }
+      });
+    }
+    // Highlight sección activa
+    document.querySelectorAll('.sec[data-mode="time"]').forEach((s, i) => {
+      s.style.background      = i===mo+1 ? '#00e5a009' : 'transparent';
+      s.style.borderLeftColor = i===mo+1 ? '#00e5a077' : i>0 ? '#00e5a022' : 'transparent';
+    });
+    cwEl._wake?.(-1); // no keyword-specific glow en modo temporal
+  }
+
+  /* ── Cambio de modo nav ──────────────────────────── */
+  function switchNavMode(mode) {
+    if (mode===navMode) return;
+    navMode=mode;
+    curKw=-99; curMo=-99;
+    document.getElementById('btn-kw').classList.toggle('active',   mode==='kw');
+    document.getElementById('btn-time').classList.toggle('active', mode==='time');
+    renderSections();
+    updateLegVisibility();
+    window.scrollTo({ top:0, behavior:'smooth' });
+    if (mode==='kw')   setTimeout(() => applyFilter(-1), 120);
+    else               setTimeout(() => applyTimeMo(-1), 120);
+  }
+
   /* ── Events ─────────────────────────────────────── */
   sel.addEventListener('change', () => applyFilter(parseInt(sel.value)));
   document.getElementById('btn-month').addEventListener('click', () => switchView('month'));
   document.getElementById('btn-day').addEventListener('click',   () => switchView('day'));
+  document.getElementById('btn-kw').addEventListener('click',    () => switchNavMode('kw'));
+  document.getElementById('btn-time').addEventListener('click',  () => switchNavMode('time'));
 
   const SH=320;
   window.addEventListener('scroll', () => {
-    const idx = Math.min(Math.floor(window.scrollY/SH), SECS.length-1);
-    const kw  = SECS[idx].kw; sel.value=kw; applyFilter(kw);
+    if (navMode === 'kw') {
+      const idx = Math.min(Math.floor(window.scrollY/SH), SECS.length-1);
+      const kw  = SECS[idx].kw; sel.value=kw; applyFilter(kw);
+    } else {
+      const idx = Math.min(Math.floor(window.scrollY/SH), SECS_TIME.length-1);
+      applyTimeMo(SECS_TIME[idx].mo);
+    }
   });
 
+  updateLegVisibility();
   setTimeout(() => applyFilter(-1), 100);
 }
 
