@@ -126,6 +126,99 @@ select option { background: #10001c; }
 
 body::-webkit-scrollbar { width: 3px; }
 body::-webkit-scrollbar-thumb { background: #ffffff18; border-radius: 2px; }
+
+/* ── TAB SWITCHER ────────────────────────────────────── */
+#tab-bar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; background: #07001a;
+  border-bottom: 1px solid #ffffff12;
+}
+.tab-btn {
+  flex: 1; padding: 11px 0; text-align: center;
+  font-family: 'Courier New', monospace; font-size: 9px;
+  letter-spacing: 2.5px; text-transform: uppercase;
+  color: #ffffff33; background: none; border: none;
+  cursor: pointer; transition: color .2s, border-bottom .2s;
+  border-bottom: 2px solid transparent;
+}
+.tab-btn.active { color: #cc55ff; border-bottom-color: #cc55ff; }
+
+/* ── PANELS ──────────────────────────────────────────── */
+#panel-explore { display: block; }
+#panel-query   { display: none; min-height: 100vh; padding: 24px 20px 60px; max-width: 780px; margin: 0 auto; }
+
+/* ── RAG INPUT ───────────────────────────────────────── */
+#rag-form {
+  display: flex; gap: 8px; margin-bottom: 12px;
+}
+#rag-input {
+  flex: 1; background: #10001c; border: 1px solid #ffffff18;
+  color: #fff; padding: 10px 14px;
+  font-family: 'Courier New', monospace; font-size: 11px;
+  letter-spacing: .5px; outline: none;
+  transition: border-color .2s;
+}
+#rag-input:focus { border-color: #cc55ff66; }
+#rag-input::placeholder { color: #ffffff28; }
+#rag-btn {
+  background: #1e003a; border: 1px solid #cc55ff44; color: #cc55ff;
+  padding: 10px 18px; font-family: 'Courier New', monospace;
+  font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+  cursor: pointer; white-space: nowrap;
+  transition: background .2s, border-color .2s;
+}
+#rag-btn:hover { background: #2d0055; border-color: #cc55ff88; }
+#rag-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ── CHIPS ───────────────────────────────────────────── */
+#rag-chips {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 22px;
+}
+.chip {
+  background: #10001c; border: 1px solid #ffffff14; color: #ffffff44;
+  padding: 4px 10px; font-family: 'Courier New', monospace;
+  font-size: 8px; letter-spacing: 1px; text-transform: uppercase;
+  cursor: pointer; transition: color .2s, border-color .2s;
+}
+.chip:hover { color: #cc55ffaa; border-color: #cc55ff44; }
+
+/* ── RAG RESPONSE ────────────────────────────────────── */
+#rag-empty {
+  margin-top: 48px; text-align: center;
+  font-size: 10px; letter-spacing: 2px;
+  color: #ffffff18; text-transform: uppercase;
+}
+#rag-spinner {
+  display: none; margin: 48px auto; text-align: center;
+}
+#rag-answer-wrap { display: none; }
+#rag-answer {
+  font-size: 12px; line-height: 1.9; color: #ffffffcc;
+  white-space: pre-wrap; margin-bottom: 20px;
+  border-left: 2px solid #cc55ff33; padding-left: 16px;
+}
+
+/* ── SOURCES ─────────────────────────────────────────── */
+#sources-toggle {
+  background: none; border: none; border-top: 1px solid #ffffff0e;
+  color: #ffffff33; font-family: 'Courier New', monospace;
+  font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+  cursor: pointer; padding: 10px 0; display: block; width: 100%;
+  text-align: left; transition: color .2s;
+}
+#sources-toggle:hover { color: #ffffff66; }
+#sources-list { display: none; margin-top: 10px; }
+.source-item {
+  border: 1px solid #ffffff09; padding: 10px 14px;
+  margin-bottom: 8px; font-size: 10px; line-height: 1.7;
+}
+.source-frase { color: #ffffffaa; font-style: italic; margin-bottom: 5px; }
+.source-meta  { color: #ffffff33; font-size: 9px; letter-spacing: .5px; }
+
+@media (max-width: 600px) {
+  #panel-query { padding: 16px 14px 60px; }
+  #rag-answer  { font-size: 11px; }
+}
 </style>
 </head>
 <body>
@@ -136,11 +229,19 @@ body::-webkit-scrollbar-thumb { background: #ffffff18; border-radius: 2px; }
   <div id="error-msg"></div>
 </div>
 
+<!-- ── TAB BAR ───────────────────────────────────── -->
+<div id="tab-bar">
+  <button class="tab-btn active" data-tab="explore">◈ Explorar</button>
+  <button class="tab-btn"        data-tab="query">⬡ Consultar</button>
+</div>
+
 <div id="tooltip">
   <div class="t-frase" id="t-frase"></div>
   <div class="t-meta"  id="t-meta"></div>
 </div>
 
+<!-- ── PANEL EXPLORAR ────────────────────────────── -->
+<div id="panel-explore">
 <div id="cw">
   <div id="toolbar">
     <div id="toolbar-left">
@@ -164,6 +265,36 @@ body::-webkit-scrollbar-thumb { background: #ffffff18; border-radius: 2px; }
 </div>
 <div id="sections"></div>
 <div style="height: 480px;"></div>
+</div><!-- /panel-explore -->
+
+<!-- ── PANEL CONSULTAR ───────────────────────────── -->
+<div id="panel-query">
+  <div id="rag-form">
+    <input id="rag-input" type="text"
+      placeholder="Busca declaraciones... (ej: qué dijo sobre corrupción)"
+      autocomplete="off" />
+    <button id="rag-btn">Buscar</button>
+  </div>
+
+  <div id="rag-chips">
+    <span class="chip">frases sobre Trump</span>
+    <span class="chip">declaraciones de economía</span>
+    <span class="chip">menciones a fentanilo</span>
+    <span class="chip">declaraciones más relevantes</span>
+  </div>
+
+  <div id="rag-empty">Realiza una consulta para explorar el discurso presidencial</div>
+
+  <div id="rag-spinner">
+    <div class="spinner"></div>
+  </div>
+
+  <div id="rag-answer-wrap">
+    <div id="rag-answer"></div>
+    <button id="sources-toggle">▸ Fuentes consultadas</button>
+    <div id="sources-list"></div>
+  </div>
+</div><!-- /panel-query -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.3/p5.min.js"></script>
 <script>
@@ -724,7 +855,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
 }
 
 /* ══════════════════════════════════════════════════════
-   BOOTSTRAP
+   BOOTSTRAP — Explorar
    ══════════════════════════════════════════════════════ */
 (async () => {
   try {
@@ -739,6 +870,117 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     document.getElementById('error-msg').style.display = 'block';
     document.getElementById('error-msg').textContent   = err.message;
     document.querySelector('.spinner').style.display   = 'none';
+  }
+})();
+
+/* ══════════════════════════════════════════════════════
+   TAB SWITCHER
+   ══════════════════════════════════════════════════════ */
+(function () {
+  const tabs = document.querySelectorAll('.tab-btn');
+  const panels = {
+    explore: document.getElementById('panel-explore'),
+    query:   document.getElementById('panel-query'),
+  };
+  tabs.forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      const target = btn.dataset.tab;
+      Object.entries(panels).forEach(([key, el]) => {
+        el.style.display = key === target ? 'block' : 'none';
+      });
+      // Ocultar tooltip al cambiar de tab
+      document.getElementById('tooltip').style.opacity = 0;
+    });
+  });
+})();
+
+/* ══════════════════════════════════════════════════════
+   RAG — PESTAÑA CONSULTAR
+   ══════════════════════════════════════════════════════ */
+const WORKER_URL = 'https://nash-api.ogaldamez.workers.dev';
+
+(function () {
+  const input      = document.getElementById('rag-input');
+  const btn        = document.getElementById('rag-btn');
+  const empty      = document.getElementById('rag-empty');
+  const spinner    = document.getElementById('rag-spinner');
+  const answerWrap = document.getElementById('rag-answer-wrap');
+  const answerEl   = document.getElementById('rag-answer');
+  const srcToggle  = document.getElementById('sources-toggle');
+  const srcList    = document.getElementById('sources-list');
+
+  // Chips
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      input.value = chip.textContent.trim();
+      runQuery();
+    });
+  });
+
+  // Submit
+  btn.addEventListener('click', runQuery);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') runQuery(); });
+
+  // Sources toggle
+  let srcOpen = false;
+  srcToggle.addEventListener('click', () => {
+    srcOpen = !srcOpen;
+    srcList.style.display = srcOpen ? 'block' : 'none';
+    srcToggle.textContent = (srcOpen ? '▾' : '▸') + ' Fuentes consultadas';
+  });
+
+  function setLoading(on) {
+    btn.disabled       = on;
+    spinner.style.display    = on ? 'block' : 'none';
+    empty.style.display      = 'none';
+    answerWrap.style.display = on ? 'none' : '';
+  }
+
+  function renderSources(sources) {
+    srcList.innerHTML = '';
+    srcOpen = false;
+    srcToggle.textContent = '▸ Fuentes consultadas';
+    srcList.style.display = 'none';
+    sources.forEach((s, i) => {
+      const el = document.createElement('div');
+      el.className = 'source-item';
+      el.innerHTML = `
+        <div class="source-frase">"${(s.content || '').slice(0, 160)}${s.content?.length > 160 ? '…' : ''}"</div>
+        <div class="source-meta">
+          [${i+1}] ${s.fecha || '?'} · ${s.subject || '?'} · ${s.keywords || '?'}
+          · score ${s.puntuacion_total ?? '?'} · ${s.min_sec || '?'}
+        </div>`;
+      srcList.appendChild(el);
+    });
+  }
+
+  async function runQuery() {
+    const q = input.value.trim();
+    if (!q) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${WORKER_URL}/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || res.statusText);
+      }
+      const { answer, sources } = await res.json();
+      answerEl.textContent = answer;
+      renderSources(sources || []);
+      setLoading(false);
+      answerWrap.style.display = 'block';
+    } catch (err) {
+      setLoading(false);
+      answerWrap.style.display = 'block';
+      answerEl.textContent = `Error: ${err.message}`;
+      srcList.innerHTML = '';
+    }
   }
 })();
 </script>
