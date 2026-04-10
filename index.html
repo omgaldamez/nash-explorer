@@ -80,7 +80,7 @@ body {
   background: var(--bg); border-bottom: 1px solid var(--border);
   z-index: 10; overflow: hidden;
   display: flex; flex-direction: column;
-  transition: background .35s;
+  transition: background .35s, opacity .55s, transform .55s;
 }
 
 /* ── TOOLBAR ─────────────────────────────────────────── */
@@ -137,17 +137,64 @@ select option { background: var(--surface); }
 .ld { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .lt { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
 
-/* ── SECTIONS ────────────────────────────────────────── */
-.sec {
-  height: 380px; padding: 38px 52px;
+/* ── CHAPTER (two-column scrollytelling) ───────────── */
+.chapter {
+  display: grid; grid-template-columns: 260px 1fr;
   border-top: 1px solid var(--border);
-  display: flex; align-items: center;
-  transition: background .5s, border-left-color .5s;
-  border-left: 2px solid transparent;
+  border-left: 3px solid transparent;
+  transition: border-left-color .5s, background .5s;
 }
-.stag  { font-size: 9px; text-transform: uppercase; letter-spacing: 4px; margin-bottom: 12px; color: var(--txt-lo); }
-.stit  { font-size: 27px; font-weight: bold; margin-bottom: 14px; line-height: 1.1; }
-.sbody { font-size: 12px; line-height: 1.85; color: var(--txt-mid); max-width: 340px; }
+.chapter--active { background: var(--accent-bg); border-left-color: var(--accent) !important; }
+.chapter--active.chapter--time { background: var(--green-bg); border-left-color: var(--green) !important; }
+.chapter-left {
+  position: sticky; top: 420px; align-self: start;
+  padding: 36px 24px; border-right: 1px solid var(--border);
+}
+.chap-num   { font-size: 40px; font-weight: bold; opacity: .07; line-height: 1; color: var(--txt); margin-bottom: 6px; }
+.chap-tag   { font-size: 8px; letter-spacing: 4px; text-transform: uppercase; margin-bottom: 10px; }
+.chap-title { font-size: 20px; font-weight: bold; line-height: 1.2; margin-bottom: 10px; }
+.chap-desc  { font-size: 11px; line-height: 1.8; color: var(--txt-mid); }
+
+.step {
+  min-height: 60vh; padding: 48px 52px;
+  display: flex; flex-direction: column; justify-content: center;
+  border-bottom: 1px solid var(--border);
+  opacity: 0.3; transition: opacity .45s;
+}
+.step.step--active { opacity: 1; }
+.step-eyebrow { font-size: 8px; letter-spacing: 3px; text-transform: uppercase;
+                color: var(--txt-dim); margin-bottom: 16px; }
+.step-text  { font-size: 13px; line-height: 1.9; color: var(--txt-mid);
+              max-width: 460px; margin-bottom: 18px; }
+.step-quote { font-size: 12px; line-height: 1.85; font-style: italic;
+              color: var(--txt-hi); border-left: 2px solid var(--accent);
+              padding-left: 14px; margin: 0 0 14px; max-width: 420px; }
+.step-meta  { font-size: 9px; letter-spacing: 1px; color: var(--txt-lo); text-transform: uppercase; }
+
+/* ── PAUSE CHAPTER (full-screen narrative break) ────── */
+.chapter-pause {
+  position: relative; z-index: 11; /* cubre #cw (z-index:10) al hacer scroll */
+  min-height: 100vh; padding: 10vh 8vw;
+  border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; justify-content: center;
+  background: var(--surface); transition: background .5s;
+}
+.pause-eyebrow { font-size: 8px; letter-spacing: 5px; text-transform: uppercase;
+                 color: var(--txt-dim); margin-bottom: 28px; }
+.pause-title   { font-size: clamp(28px, 5vw, 52px); font-weight: bold;
+                 line-height: 1.15; color: var(--txt-hi);
+                 margin-bottom: 32px; max-width: 700px; }
+.pause-body    { font-size: clamp(13px, 1.5vw, 16px); line-height: 2;
+                 color: var(--txt-mid); max-width: 620px; }
+.pause-body p  { margin-bottom: 1.4em; }
+.pause-rule    { width: 40px; height: 2px; background: var(--accent); margin: 40px 0; }
+
+@media (max-width: 700px) {
+  .chapter { grid-template-columns: 1fr; }
+  .chapter-left { position: static; border-right: none;
+                  border-bottom: 1px solid var(--border); padding: 22px 16px; }
+  .step { padding: 32px 20px; min-height: 50vh; }
+}
 
 /* ── HOVER TOOLTIP (pequeño, on-hover) ───────────────── */
 #tooltip {
@@ -421,6 +468,56 @@ const TEXTS = {
   intro: 'Fragmentos de conferencias de prensa indexados por keyword y fecha. Desplázate para explorar cada tema o filtra desde el dropdown.',
 };
 
+// ── Story beats: puntos específicos a resaltar durante el scroll ──────────
+// Para identificar un punto usa fecha exacta (DD/MM/YYYY) y los primeros
+// ~40 caracteres de la frase. Ambos deben coincidir con el dato en Qdrant.
+// "note" es el texto periodístico que aparece en la sección y en el callout.
+const STORY_BEATS = [
+  {
+    fecha: '01/01/2024',           // ← reemplazar con fecha real (DD/MM/YYYY)
+    frase: 'Lorem ipsum',          // ← primeros chars de la frase real
+    label: 'Declaración clave',
+    note:  'Placeholder: aquí va el análisis periodístico de esta declaración específica. Explica por qué es relevante en el contexto del discurso presidencial.',
+    mode:  'kw',                   // 'kw' | 'time' | 'both'
+  },
+  {
+    fecha: '01/02/2024',
+    frase: 'Lorem ipsum',
+    label: 'Cambio de narrativa',
+    note:  'Placeholder: este fragmento marca un punto de inflexión en el discurso. La comparación con declaraciones anteriores revela un patrón significativo.',
+    mode:  'kw',
+  },
+  {
+    fecha: '01/03/2024',
+    frase: 'Lorem ipsum',
+    label: 'Contexto temporal',
+    note:  'Placeholder: en el contexto del mes, esta declaración adquiere un peso particular. El análisis cronológico muestra una evolución en el tratamiento del tema.',
+    mode:  'time',
+  },
+];
+
+// Pausa narrativa — texto largo que aparece a mitad del scroll
+const PAUSE_KW = {
+  eyebrow: 'Análisis',
+  title:   'El discurso presidencial como documento histórico',
+  body: `
+    <p>Placeholder — este es el espacio para una pausa narrativa extensa. Aquí el lector puede detenerse y contextualizar lo que ha visto hasta ahora en la visualización.</p>
+    <p>Las conferencias de prensa matutinas constituyen uno de los corpus más ricos del discurso político contemporáneo en México. Más de mil horas de audio indexadas permiten rastrear la evolución de posiciones, la consistencia de los mensajes y las contradicciones a lo largo del tiempo.</p>
+    <p>Lo que la visualización muestra no es solo frecuencia — muestra densidad temática. Los clusters que se forman en ciertos meses responden a eventos externos: negociaciones comerciales, presiones diplomáticas, crisis sanitarias.</p>
+    <p>Continúa desplazándote para explorar cada tema en detalle.</p>
+  `,
+};
+const PAUSE_TIME = {
+  eyebrow: 'Cronología',
+  title:   'Doce meses de agenda pública',
+  body: `
+    <p>Placeholder — pausa en el modo temporal. El recorrido mes a mes revela algo que los titulares no capturan: la acumulación.</p>
+    <p>Cada punto en la visualización es una declaración transcrita, clasificada y puntuada. El volumen importa tanto como el contenido: la densidad de menciones en ciertos periodos señala dónde estaba la atención del gobierno.</p>
+    <p>Los meses de menor actividad son tan reveladores como los de mayor densidad. La ausencia también es un dato.</p>
+    <p>Continúa para explorar el detalle mes a mes.</p>
+  `,
+};
+
 /* ══════════════════════════════════════════════════════
    CARGA — detecta formato nuevo {kw,mo,...} o viejo array
    ══════════════════════════════════════════════════════ */
@@ -501,83 +598,212 @@ function processData({ kw, kwN, mo, dayMs, dots: raw }) {
     rx: d[3], ry: d[4],
     score: d[5], subject: d[6], frase: d[7],
     fecha: utcMsToFecha(d[2]),
-    // estado de animación (mutable)
+    storyIdx: -1,               // índice en STORY_BEATS si hay match
     cx: 0, cy: 0, tx: 0, ty: 0,
     alpha: 0, targetAlpha: 0,
   }));
 
+  // Matching de story beats → dots
+  STORY_BEATS.forEach((beat, bi) => {
+    const snippet = beat.frase.trim().slice(0, 40).toLowerCase();
+    const match = dots.find(d =>
+      d.fecha === beat.fecha &&
+      d.frase.toLowerCase().includes(snippet)
+    );
+    if (match) match.storyIdx = bi;
+  });
+
+  // SECS modo keyword — pausa después del 3er keyword, beats al final
+  const kwBeats = STORY_BEATS
+    .map((b, i) => ({ ...b, beatIdx: i }))
+    .filter(b => b.mode === 'kw' || b.mode === 'both');
+  const kwSecs = KW.map((k, i) => ({
+    type: 'kw', kw: i, tag:`${kwN[i]} fragmentos`,
+    title: k.charAt(0).toUpperCase()+k.slice(1),
+    body: TEXTS[k] || 'Lorem ipsum dolor sit amet consectetur adipiscing elit.',
+  }));
+  // Insertar pausa después del índice 2 (3er keyword) si hay al menos 3 keywords
+  const pauseInsertKw = Math.min(2, kwSecs.length - 1);
   const SECS = [
-    { kw:-1, tag:'Panorama general', title:'Nash — Análisis de discurso', body: TEXTS.intro },
-    ...KW.map((k, i) => ({
-      kw: i, tag:`${kwN[i]} fragmentos`,
-      title: k.charAt(0).toUpperCase()+k.slice(1),
-      body: TEXTS[k] || 'Lorem ipsum dolor sit amet consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.',
-    }))
+    { type:'kw', kw:-1, tag:'Panorama general', title:'Nash — Análisis de discurso', body: TEXTS.intro },
+    ...kwSecs.slice(0, pauseInsertKw + 1),
+    { type:'pause', ...PAUSE_KW },
+    ...kwSecs.slice(pauseInsertKw + 1),
+    ...kwBeats.map(b => ({ type:'beat', beatIdx: b.beatIdx, kw:-1, ...b })),
   ];
 
-  return { KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS };
+  // SECS_TIME — pausa después del 2do mes
+  const timeBeats = STORY_BEATS
+    .map((b, i) => ({ ...b, beatIdx: i }))
+    .filter(b => b.mode === 'time' || b.mode === 'both');
+  const moSecs = MO_LABEL.map((lbl, i) => ({ type:'mo', mo: i, tag: lbl, title: lbl }));
+  const pauseInsertTime = Math.min(1, moSecs.length - 1);
+  const SECS_TIME_BUILT = [
+    { type:'mo', mo:-1, tag:'Panorama general', title:'Nash — Línea de tiempo',
+      body:'Todos los fragmentos ordenados cronológicamente.' },
+    ...moSecs.slice(0, pauseInsertTime + 1),
+    { type:'pause', ...PAUSE_TIME },
+    ...moSecs.slice(pauseInsertTime + 1),
+    ...timeBeats.map(b => ({ type:'beat', beatIdx: b.beatIdx, mo:-1, ...b })),
+  ];
+
+  return { KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT };
 }
 
 /* ══════════════════════════════════════════════════════
    VIZ
    ══════════════════════════════════════════════════════ */
-function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
+function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
   function CL(i) { return activePalette()[i % 8]; }
   const cwEl     = document.getElementById('cw');
-  const chartEl  = document.getElementById('chart-area'); // p5 vive aquí
+  const chartEl  = document.getElementById('chart-area');
   let viewMode   = 'month';
-  let navMode    = 'kw';      // 'kw' | 'time'
+  let navMode    = 'kw';
   let curKw      = -99;
   let curMo      = -99;
-  let dayStackMo    = -1;     // >= 0 cuando temporal está en detalle de mes
-  let _dayAxisParams = null;  // { daysInMonth, bw, MB } — calculado por computeTargetsDayStack
-  // top reducido: toolbar ya está fuera del canvas
+  let dayStackMo         = -1;
+  let _dayAxisParams     = null;
+  let activeStory        = -1;   // índice STORY_BEATS activo (-1 = ninguno)
+  let stepObserver       = null; // IntersectionObserver para steps
+  let curChapterSecIdx   = -1;   // secIdx del chapter activo (evita re-animación dentro del mismo chapter)
+  let pauseObserver      = null; // IntersectionObserver para pausas
   const M      = { top:12, right:14, bottom:36, left:10 };
 
-  // Construir secciones temporales a partir de MO_LABEL
-  const SECS_TIME = [
-    { mo:-1, tag:'Panorama general', title:'Nash — Línea de tiempo',
-      body:'Todos los fragmentos ordenados cronológicamente. Desplázate para recorrer mes a mes.' },
-    ...MO_LABEL.map((lbl, i) => ({
-      mo: i, tag: `${lbl}`,
-      title: lbl,
-      body: 'Lorem ipsum dolor sit amet consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam quis nostrud exercitation.',
-    }))
-  ];
+  const SECS_TIME = SECS_TIME_BUILT;
 
   /* ── Render secciones ────────────────────────────── */
   const secEl = document.getElementById('sections');
 
+  /* Genera 3 steps con referencias a dots reales */
+  function makeStepsForSection(sType, sKw, sMo) {
+    const relevant = sType === 'mo'
+      ? (sMo >= 0 ? dots.filter(d => d.mi === sMo) : dots)
+      : (sKw >= 0 ? dots.filter(d => d.ki === sKw) : dots);
+    if (!relevant.length) return [{ num:'01', text:'Sin fragmentos disponibles.', dotId:null, quote:null, meta:null }];
+
+    const top    = [...relevant].sort((a,b) => b.score - a.score)[0];
+    const others = relevant.filter(d => d.id !== top?.id);
+    const recent = others.sort((a,b) => b.dateObj - a.dateObj)[0] ?? null;
+    const kwLbl  = sKw >= 0 ? KW[sKw] : null;
+    const moLbl  = sMo >= 0 ? MO_LABEL[sMo] : null;
+
+    const t1 = sType === 'mo'
+      ? `Durante <strong>${moLbl || 'el período'}</strong> se registraron <strong>${relevant.length} fragmentos</strong> de relevancia. El desglose por día revela la distribución de la actividad discursiva en el mes.`
+      : kwLbl
+      ? `Los <strong>${relevant.length} fragmentos</strong> registrados sobre <em>${kwLbl}</em> permiten trazar la evolución del tema en el discurso presidencial. Cada punto representa una declaración transcrita e indexada.`
+      : `El corpus completo contiene <strong>${relevant.length} fragmentos</strong> de conferencias de prensa, organizados por tema y fecha. Desplázate para explorar cada categoría.`;
+
+    const t2 = top
+      ? `El fragmento de mayor relevancia (puntuación <strong>${top.score}/3</strong>) captura un momento de alta densidad argumentativa. Fecha y contexto son clave para la interpretación del discurso.`
+      : `Los fragmentos de mayor puntuación concentran las declaraciones con mayor peso argumentativo del período.`;
+
+    const t3 = recent
+      ? `La declaración registrada el <strong>${recent.fecha}</strong> permite observar la evolución narrativa. La comparación entre registros tempranos y recientes revela continuidades y rupturas discursivas.`
+      : `La distribución cronológica permite identificar ciclos de atención y momentos de mayor densidad en el discurso presidencial.`;
+
+    return [
+      { num:'01', text:t1, dotId:null, quote:null, meta:null },
+      { num:'02', text:t2,
+        dotId: top?.id ?? null,
+        quote: top ? `"${top.frase.slice(0,130)}${top.frase.length>130?'…':''}"` : null,
+        meta:  top ? `${top.fecha} · ${top.subject}` : null },
+      { num:'03', text:t3,
+        dotId: recent?.id ?? null,
+        quote: recent ? `"${recent.frase.slice(0,130)}${recent.frase.length>130?'…':''}"` : null,
+        meta:  recent ? `${recent.fecha} · ${recent.subject}` : null },
+    ];
+  }
+
   function renderSections() {
     secEl.innerHTML = '';
-    if (navMode === 'kw') {
-      SECS.forEach((s, i) => {
-        const c = s.kw>=0 ? CL(s.kw) : (document.documentElement.dataset.theme==='light' ? '#33004488' : '#ffffff44');
-        const el = document.createElement('div');
-        el.className='sec'; el.dataset.i=i; el.dataset.mode='kw';
-        el.style.borderLeftColor = s.kw>=0 ? CL(s.kw)+'22' : 'transparent';
-        el.innerHTML=`<div>
-          <div class="stag" style="color:${c}">${s.tag}</div>
-          <div class="stit" style="color:${c}">${s.title}</div>
-          <div class="sbody">${s.body}</div>
-        </div>`;
-        secEl.appendChild(el);
-      });
-    } else {
-      SECS_TIME.forEach((s, i) => {
-        const c = document.documentElement.dataset.theme==='light' ? '#006644' : '#00e5a0';
-        const el = document.createElement('div');
-        el.className='sec'; el.dataset.i=i; el.dataset.mode='time';
-        el.style.borderLeftColor = s.mo>=0 ? c+'22' : 'transparent';
-        el.innerHTML=`<div>
-          <div class="stag" style="color:${c}88">${s.tag}</div>
-          <div class="stit" style="color:${c}">${s.title}</div>
-          <div class="sbody">${s.body}</div>
-        </div>`;
-        secEl.appendChild(el);
-      });
-    }
+    const list   = navMode === 'kw' ? SECS : SECS_TIME;
+    const isTime = navMode === 'time';
+    const isDark = document.documentElement.dataset.theme !== 'light';
+    let chapN = 0;
+
+    list.forEach((s, secIdx) => {
+      let el;
+
+      if (s.type === 'pause') {
+        el = document.createElement('div');
+        el.className = 'chapter-pause';
+        el.dataset.secIdx = secIdx;
+        el.innerHTML = `
+          <div class="pause-eyebrow">${s.eyebrow || ''}</div>
+          <div class="pause-title">${s.title}</div>
+          <div class="pause-rule"></div>
+          <div class="pause-body">${s.body}</div>`;
+
+      } else {
+        chapN++;
+        const dispNum = String(chapN).padStart(2, '0');
+        const isBeat  = s.type === 'beat';
+
+        // Accent color for this chapter
+        let c;
+        if (isTime)       c = isDark ? '#00e5a0' : '#007755';
+        else if (s.kw>=0) c = CL(s.kw);
+        else              c = isDark ? '#ffffff' : '#330044';
+
+        el = document.createElement('div');
+        el.className = 'chapter' + (isTime ? ' chapter--time' : '');
+        el.dataset.secIdx = secIdx;
+        el.dataset.type   = s.type;
+        if (s.kw !== undefined) el.dataset.kw = s.kw;
+        if (s.mo !== undefined) el.dataset.mo = s.mo;
+        el.style.borderLeftColor = `${c}44`;
+
+        // LEFT COLUMN
+        let leftHtml;
+        if (isBeat) {
+          const beat = STORY_BEATS[s.beatIdx];
+          leftHtml = `
+            <div class="chap-num">${dispNum}</div>
+            <div class="chap-tag" style="color:${c}">Declaración destacada</div>
+            <div class="chap-title" style="color:${c}">${beat?.label || ''}</div>
+            <div class="chap-desc">${beat?.note || ''}</div>`;
+        } else {
+          leftHtml = `
+            <div class="chap-num">${dispNum}</div>
+            <div class="chap-tag" style="color:${c}">${s.tag || ''}</div>
+            <div class="chap-title" style="color:${c}">${s.title || ''}</div>
+            <div class="chap-desc">${s.body || ''}</div>`;
+        }
+
+        // RIGHT COLUMN — steps
+        let stepsHtml;
+        if (isBeat) {
+          const beat    = STORY_BEATS[s.beatIdx];
+          const beatDot = beat ? dots.find(d => d.storyIdx === s.beatIdx) : null;
+          stepsHtml = `<div class="step" data-sec-idx="${secIdx}" data-dot-id="${beatDot?.id ?? -1}">
+            <div class="step-eyebrow">Declaración destacada</div>
+            <div class="step-text">${beat?.note || ''}</div>
+            ${beatDot ? `<blockquote class="step-quote">"${beatDot.frase.slice(0,130)}${beatDot.frase.length>130?'…':''}"</blockquote>` : ''}
+            <div class="step-meta">${beat?.fecha || ''}</div>
+          </div>`;
+        } else {
+          const steps = makeStepsForSection(s.type, s.kw ?? -1, s.mo ?? -1);
+          stepsHtml = steps.map(st => `
+            <div class="step" data-sec-idx="${secIdx}" data-dot-id="${st.dotId ?? -1}">
+              <div class="step-eyebrow">${st.num}</div>
+              <div class="step-text">${st.text}</div>
+              ${st.quote ? `<blockquote class="step-quote">${st.quote}</blockquote>` : ''}
+              ${st.meta  ? `<div class="step-meta">${st.meta}</div>` : ''}
+            </div>`).join('');
+        }
+
+        el.innerHTML = `
+          <div class="chapter-left">${leftHtml}</div>
+          <div class="chapter-right">${stepsHtml}</div>`;
+      }
+
+      el.dataset.secIdx = secIdx;
+      secEl.appendChild(el);
+    });
+
+    setupStepObserver();
   }
+
   renderSections();
   document.addEventListener('themechange', () => { renderSections(); renderLegend(); });
 
@@ -944,11 +1170,49 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     function p5bg()  { return [cssVar('--p5-bg-r',7),  cssVar('--p5-bg-g',0),   cssVar('--p5-bg-b',26)]; }
     function p5txt() { return [cssVar('--p5-txt-r',255), cssVar('--p5-txt-g',255), cssVar('--p5-txt-b',255)]; }
 
+    /* ── Highlight: anillo pulsante en el dot activo ── */
+    function drawHighlight() {
+      if (highlightId < 0) return;
+      const d = dots.find(dot => dot.id === highlightId);
+      if (!d || d.alpha < 10) return;
+      const rgb   = palRgb(d.ki);
+      const pulse = 0.5 + 0.5 * Math.sin(p.frameCount * 0.08);
+      const [tr,tg,tb] = p5txt();
+
+      // Anillo exterior pulsante
+      p.noFill(); p.strokeWeight(1.5);
+      p.stroke(rgb.r, rgb.g, rgb.b, 180 * pulse);
+      p.circle(d.cx, d.cy, (DR * 2 + 8 + 6 * pulse) * 2);
+      // Anillo interior fijo
+      p.stroke(rgb.r, rgb.g, rgb.b, 220);
+      p.circle(d.cx, d.cy, (DR + 4) * 2);
+      p.noStroke();
+
+      // Línea guía + etiqueta
+      const goRight = d.cx < W * 0.6;
+      const lx = goRight ? d.cx + 18 : d.cx - 18;
+      const ly = d.cy - 22;
+      const ex = goRight ? Math.min(lx + 80, W - 10) : Math.max(lx - 80, 10);
+      p.stroke(rgb.r, rgb.g, rgb.b, 120); p.strokeWeight(1);
+      p.line(d.cx, d.cy - DR - 3, lx, ly);
+      p.line(lx, ly, ex, ly);
+      p.noStroke();
+      p.textFont('Courier New'); p.textSize(8);
+      p.textAlign(goRight ? p.LEFT : p.RIGHT);
+      p.fill(rgb.r, rgb.g, rgb.b, 220);
+      p.text(d.subject.slice(0,22), goRight ? lx+4 : lx-4, ly-4);
+      p.fill(tr, tg, tb, 120);
+      p.text(d.fecha, goRight ? lx+4 : lx-4, ly+9);
+      p.noStroke();
+      settled = false; // mantener animando
+    }
+
     p.draw = () => {
       p.background(...p5bg());
       drawAxis();
       drawParticles();
       drawDots();
+      drawHighlight();
       if (settled) p.frameRate(10);
       else          p.frameRate(30);
     };
@@ -965,6 +1229,13 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     chartEl._wake = (kwForGlow) => {
       activeKwForGlow = kwForGlow !== undefined ? kwForGlow : activeKwForGlow;
       settled=false; p.frameRate(30);
+    };
+
+    let highlightId = -1; // id del dot actualmente en callout (-1 = ninguno)
+    chartEl._setHighlight = (id) => {
+      highlightId = id ?? -1;
+      settled = false;
+      p.frameRate(30);
     };
 
   }, chartEl);
@@ -1024,10 +1295,11 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     }
 
     KW.forEach((_,i) => { const e=document.getElementById(`li${i}`); if(e) e.style.opacity=(kw===-1||i===kw)?1:.22; });
-    document.querySelectorAll('.sec').forEach((s,i) => {
-      const sk=SECS[i]?.kw;
-      s.style.background      = i===kw+1 ? CL(sk)+'09' : 'transparent';
-      s.style.borderLeftColor = i===kw+1 ? CL(sk)+'77' : sk>=0 ? CL(sk)+'22' : 'transparent';
+    document.querySelectorAll('.chapter[data-type="kw"]').forEach(ch => {
+      const chKw = parseInt(ch.dataset.kw ?? '-99');
+      const isActive = chKw === kw;
+      ch.classList.toggle('chapter--active', isActive);
+      ch.style.borderLeftColor = isActive ? '' : (chKw >= 0 ? `${CL(chKw)}33` : 'transparent');
     });
     chartEl._wake?.(kw);
   }
@@ -1074,10 +1346,12 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
         d.delay = Math.floor(i / active.length * 75);
       });
     }
-    // Highlight sección activa
-    document.querySelectorAll('.sec[data-mode="time"]').forEach((s, i) => {
-      s.style.background      = i===mo+1 ? '#00e5a009' : 'transparent';
-      s.style.borderLeftColor = i===mo+1 ? '#00e5a077' : i>0 ? '#00e5a022' : 'transparent';
+    // Highlight capítulo activo
+    document.querySelectorAll('.chapter[data-type="mo"]').forEach(ch => {
+      const chMo = parseInt(ch.dataset.mo ?? '-99');
+      const isActive = chMo === mo;
+      ch.classList.toggle('chapter--active', isActive);
+      ch.style.borderLeftColor = isActive ? '' : (chMo >= 0 ? '#00e5a033' : 'transparent');
     });
     chartEl._wake?.(-1); // no keyword-specific glow en modo temporal
   }
@@ -1086,7 +1360,8 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
   function switchNavMode(mode) {
     if (mode===navMode) return;
     navMode=mode;
-    curKw=-99; curMo=-99; dayStackMo=-1;
+    curKw=-99; curMo=-99; dayStackMo=-1; curChapterSecIdx=-1;
+    cwEl.style.opacity = '1'; cwEl.style.pointerEvents = ''; cwEl.style.transform = '';
     document.getElementById('btn-kw').classList.toggle('active',   mode==='kw');
     document.getElementById('btn-time').classList.toggle('active', mode==='time');
     renderSections();
@@ -1096,23 +1371,77 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     else               setTimeout(() => applyTimeMo(-1), 120);
   }
 
+  /* ── Step observer: activa filtros y highlights al scroll ── */
+  function setupStepObserver() {
+    if (stepObserver) stepObserver.disconnect();
+    if (pauseObserver) pauseObserver.disconnect();
+
+    stepObserver = new IntersectionObserver(entries => {
+      let best = null, bestRatio = 0;
+      entries.forEach(e => {
+        if (e.isIntersecting && e.intersectionRatio > bestRatio) {
+          bestRatio = e.intersectionRatio; best = e.target;
+        }
+      });
+      if (!best) return;
+
+      // Marcar step activo dentro de su chapter
+      const chapter = best.closest('.chapter');
+      if (chapter) {
+        chapter.querySelectorAll('.step').forEach(s => s.classList.remove('step--active'));
+        best.classList.add('step--active');
+      }
+
+      // Highlight del dot referenciado (siempre actualizar)
+      const dotId = parseInt(best.dataset.dotId ?? '-1');
+      chartEl._setHighlight?.(dotId >= 0 ? dotId : -1);
+
+      // Aplicar filtro de sección solo si cambió el chapter (evita re-animación)
+      const secIdx = parseInt(best.dataset.secIdx ?? '-1');
+      if (secIdx === curChapterSecIdx) return; // mismo chapter → no re-animar
+      curChapterSecIdx = secIdx;
+
+      const list = navMode === 'kw' ? SECS : SECS_TIME;
+      const s    = list[secIdx];
+      if (!s || s.type === 'pause') return;
+
+      if (s.type === 'beat') {
+        if (s.beatIdx !== activeStory) {
+          activeStory = s.beatIdx;
+          chartEl._wake?.();
+        }
+        return;
+      }
+
+      activeStory = -1;
+      if (navMode === 'kw') {
+        sel.value = s.kw ?? -1;
+        applyFilter(s.kw ?? -1);
+      } else {
+        applyTimeMo(s.mo ?? -1);
+      }
+    }, { threshold: [0.25, 0.5] });
+
+    // Observer para pausas — fade out/in de #cw
+    let pauseCount = 0;
+    pauseObserver = new IntersectionObserver(entries => {
+      entries.forEach(e => { pauseCount += e.isIntersecting ? 1 : -1; });
+      pauseCount = Math.max(0, pauseCount);
+      cwEl.style.opacity       = pauseCount > 0 ? '0' : '1';
+      cwEl.style.pointerEvents = pauseCount > 0 ? 'none' : '';
+      cwEl.style.transform     = pauseCount > 0 ? 'translateY(-6px)' : '';
+    }, { threshold: 0.15 });
+
+    secEl.querySelectorAll('.step').forEach(el => stepObserver.observe(el));
+    secEl.querySelectorAll('.chapter-pause').forEach(el => pauseObserver.observe(el));
+  }
+
   /* ── Events ─────────────────────────────────────── */
   sel.addEventListener('change', () => applyFilter(parseInt(sel.value)));
   document.getElementById('btn-month').addEventListener('click', () => switchView('month'));
   document.getElementById('btn-day').addEventListener('click',   () => switchView('day'));
   document.getElementById('btn-kw').addEventListener('click',    () => switchNavMode('kw'));
   document.getElementById('btn-time').addEventListener('click',  () => switchNavMode('time'));
-
-  const SH=380;
-  window.addEventListener('scroll', () => {
-    if (navMode === 'kw') {
-      const idx = Math.min(Math.floor(window.scrollY/SH), SECS.length-1);
-      const kw  = SECS[idx].kw; sel.value=kw; applyFilter(kw);
-    } else {
-      const idx = Math.min(Math.floor(window.scrollY/SH), SECS_TIME.length-1);
-      applyTimeMo(SECS_TIME[idx].mo);
-    }
-  });
 
   updateLegVisibility();
   setTimeout(() => applyFilter(-1), 100);
