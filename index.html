@@ -76,7 +76,7 @@ body {
 
 /* ── STICKY WRAPPER ──────────────────────────────────── */
 #cw {
-  position: sticky; top: 0;
+  position: sticky; top: 69px; /* tab-bar ~33px + toolbar ~36px */
   background: var(--bg); border-bottom: 1px solid var(--border);
   z-index: 10; overflow: hidden;
   display: flex; flex-direction: column;
@@ -88,7 +88,9 @@ body {
   display: flex; align-items: center; flex-wrap: wrap;
   gap: 6px; padding: 8px 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg); z-index: 5; flex-shrink: 0;
+  background: var(--bg); z-index: 15; flex-shrink: 0;
+  position: sticky; top: 33px; /* justo debajo del tab-bar */
+  transition: background .35s;
 }
 #toolbar-left  { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
 #toolbar-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
@@ -120,7 +122,7 @@ select option { background: var(--surface); }
 }
 
 /* ── CHART AREA ──────────────────────────────────────── */
-#chart-area { position: relative; height: 220px; flex-shrink: 0; }
+#chart-area { position: relative; height: 305px; flex-shrink: 0; }
 #chart-area canvas { position: absolute; top: 0; left: 0; }
 
 /* ── LEYENDA ─────────────────────────────────────────── */
@@ -137,7 +139,7 @@ select option { background: var(--surface); }
 
 /* ── SECTIONS ────────────────────────────────────────── */
 .sec {
-  height: 320px; padding: 38px 52px;
+  height: 380px; padding: 38px 52px;
   border-top: 1px solid var(--border);
   display: flex; align-items: center;
   transition: background .5s, border-left-color .5s;
@@ -292,7 +294,8 @@ select option { background: var(--surface); }
   #view-toggle button, #mode-toggle button { font-size: 8px; padding: 4px 6px; letter-spacing: 0.3px; }
   #stats { display: none; }
   #klbl  { display: none; }
-  #chart-area { height: 180px; }
+  #chart-area { height: 235px; }
+  #cw { top: 62px; }
   #leg { gap: 4px 10px; padding: 6px 10px; }
   .lt  { font-size: 8px; }
   #panel-query { padding: 16px 14px 60px; }
@@ -340,25 +343,27 @@ body::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px
 </div>
 
 <!-- ── PANEL EXPLORAR ────────────────────────────── -->
-<div id="panel-explore">
-<div id="cw">
-  <div id="toolbar">
-    <div id="toolbar-left">
-      <select id="sel"><option value="-1">◈ Todos los keywords</option></select>
-      <span id="klbl"></span>
-      <div id="view-toggle">
-        <button id="btn-month" class="active">Meses</button>
-        <button id="btn-day">Días</button>
-      </div>
-      <div id="mode-toggle">
-        <button id="btn-kw" class="active">Keywords</button>
-        <button id="btn-time">Temporal</button>
-      </div>
+<!-- toolbar siempre visible, fuera de panel-explore -->
+<div id="toolbar">
+  <div id="toolbar-left">
+    <select id="sel"><option value="-1">◈ Todos los keywords</option></select>
+    <span id="klbl"></span>
+    <div id="view-toggle">
+      <button id="btn-month" class="active">Meses</button>
+      <button id="btn-day">Días</button>
     </div>
-    <div id="toolbar-right">
-      <div id="stats"></div>
+    <div id="mode-toggle">
+      <button id="btn-kw" class="active">Keywords</button>
+      <button id="btn-time">Temporal</button>
     </div>
   </div>
+  <div id="toolbar-right">
+    <div id="stats"></div>
+  </div>
+</div>
+
+<div id="panel-explore">
+<div id="cw">
   <div id="chart-area"></div>
   <div id="leg"></div>
 </div>
@@ -400,6 +405,7 @@ body::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px
 /* ══════════════════════════════════════════════════════
    CONFIG
    ══════════════════════════════════════════════════════ */
+const WORKER_URL = 'https://nash-api.ogaldamez.workers.dev';
 const MAX_KW   = 8;
 const PALETTE  = ['#ff00cc','#00e5a0','#ffaa00','#ff4455','#4499ff','#bb44ff','#ff8844','#00ccff'];
 const PAL_LIGHT= ['#bb0099','#006644','#bb6600','#bb0022','#1155bb','#7722bb','#bb4400','#0088aa'];
@@ -469,14 +475,9 @@ function normalizeOldFormat(arr) {
 }
 
 async function loadData() {
-  const res = await fetch('data.json');
-  if (!res.ok) throw new Error(`No se pudo cargar data.json (${res.status})`);
-  const json = await res.json();
-  // Formato nuevo: objeto con propiedad "kw"
-  if (!Array.isArray(json) && json.kw) return json;
-  // Formato viejo: array plano
-  if (Array.isArray(json)) return normalizeOldFormat(json);
-  throw new Error('Formato de data.json no reconocido');
+  const res = await fetch(`${WORKER_URL}/data`);
+  if (!res.ok) throw new Error(`Error al obtener datos del servidor (${res.status})`);
+  return res.json();
 }
 
 /* ══════════════════════════════════════════════════════
@@ -524,10 +525,12 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
   function CL(i) { return activePalette()[i % 8]; }
   const cwEl     = document.getElementById('cw');
   const chartEl  = document.getElementById('chart-area'); // p5 vive aquí
-  let viewMode = 'month';
-  let navMode  = 'kw';      // 'kw' | 'time'
-  let curKw    = -99;
-  let curMo    = -99;
+  let viewMode   = 'month';
+  let navMode    = 'kw';      // 'kw' | 'time'
+  let curKw      = -99;
+  let curMo      = -99;
+  let dayStackMo    = -1;     // >= 0 cuando temporal está en detalle de mes
+  let _dayAxisParams = null;  // { daysInMonth, bw, MB } — calculado por computeTargetsDayStack
   // top reducido: toolbar ya está fuera del canvas
   const M      = { top:12, right:14, bottom:36, left:10 };
 
@@ -656,6 +659,44 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     }
   }
 
+  function computeTargetsDayStack(mo) {
+    const W = chartEl.clientWidth, H = chartEl.clientHeight;
+    const MB = 48; // margen bottom extra para etiquetas
+
+    // Agrupar dots del mes por día
+    const byDay = {};
+    dots.forEach(d => {
+      if (d.mi !== mo) return;
+      const day = d.dateObj.getUTCDate();
+      if (!byDay[day]) byDay[day] = [];
+      byDay[day].push(d);
+    });
+    Object.values(byDay).forEach(arr => arr.sort((a, b) => a.dateObj - b.dateObj));
+
+    // Días reales del mes (1–daysInMonth)
+    const sampleDot = dots.find(d => d.mi === mo);
+    const daysInMonth = sampleDot
+      ? new Date(sampleDot.dateObj.getUTCFullYear(), sampleDot.dateObj.getUTCMonth() + 1, 0).getUTCDate()
+      : 31;
+
+    const bw         = (W - M.left - M.right) / daysInMonth;
+    const maxStack   = Math.max(...Object.values(byDay).map(a => a.length), 1);
+    const availH     = H - M.top - MB - 6;
+    const dotSpacing = Math.min(availH / maxStack, 14);
+    const stackBottom = H - MB - 2;
+
+    dots.forEach(d => {
+      if (d.mi !== mo) return;
+      const day   = d.dateObj.getUTCDate();
+      const group = byDay[day];
+      const idx   = group.indexOf(d);
+      d.tx = M.left + (day - 0.5) * bw;
+      d.ty = stackBottom - idx * dotSpacing;
+    });
+    // Guardar para que drawDayAxis use los mismos parámetros
+    _dayAxisParams = { daysInMonth, bw: bw, MB };
+  }
+
   function monthRange(start, end) {
     const months=[], cur=new Date(start.getUTCFullYear(), start.getUTCMonth(), 1);
     const last=new Date(end.getUTCFullYear(), end.getUTCMonth(), 1);
@@ -702,34 +743,80 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
       W=p.width; H=p.height; DR=dotRadius(W);
       for (let i=0; i<NUM_PT; i++) particles.push(new Particle(W, H));
       computeTargets(W, H);
-      // Entrada: dots nacen dispersos en una nube central y vuelan a su lugar
+      // Entrada: cada dot cae desde arriba en diagonal hacia su posición
       dots.forEach(d => {
-        const angle = Math.random()*Math.PI*2;
-        const dist  = Math.random()*Math.min(W,H)*0.22;
-        d.cx = W*0.5 + Math.cos(angle)*dist;
-        d.cy = H*0.5 + Math.sin(angle)*dist;
+        const offsetX = (d.tx - W * 0.5) * 0.7;
+        d.cx = d.tx + offsetX + (Math.random()-0.5)*30;
+        d.cy = -H * 0.15 - Math.random()*H*0.2;
         d.alpha = 0;
-        d.delay = Math.floor(Math.random()*55); // stagger de hasta ~1.8s
+        d.delay = Math.floor(Math.random()*55);
       });
     };
 
     function dotRadius(W) { return Math.max(2.2, Math.min(4, W/310)); }
 
-    /* ── Glow sutil: solo en dots activos/filtrados ─ */
-    // Dos anillos tenues — solo cuando hay keyword activo
+    /* ── Glow sutil: solo en dark mode, solo en keyword activo ─ */
     function drawGlowDot(x, y, r, rgb, alpha, glowing) {
-      if (glowing) {
-        p.fill(rgb.r, rgb.g, rgb.b, alpha * 0.04);
-        p.circle(x, y, r * 8);
-        p.fill(rgb.r, rgb.g, rgb.b, alpha * 0.11);
-        p.circle(x, y, r * 4);
+      const isDark = document.documentElement.dataset.theme !== 'light';
+      if (glowing && isDark) {
+        p.fill(rgb.r, rgb.g, rgb.b, alpha * 0.18);
+        p.circle(x, y, r * 3.2);
       }
       p.fill(rgb.r, rgb.g, rgb.b, alpha);
       p.circle(x, y, r * 2);
     }
 
+    /* ── Eje días+semanas (temporal detalle) ────────── */
+    function drawDayAxis() {
+      if (!_dayAxisParams) return;
+      const { daysInMonth, bw, MB } = _dayAxisParams;
+      p.noStroke();
+      p.textFont('Courier New');
+      p.textSize(Math.max(9, Math.min(11, W / 80)));
+      const [tr,tg,tb] = p5txt();
+      const chartBottom = H - MB;
+
+      // Semanas: bloques de 7 días
+      let w = 0;
+      for (let d0 = 1; d0 <= daysInMonth; d0 += 7, w++) {
+        const d1  = Math.min(d0 + 6, daysInMonth);
+        const x0  = M.left + (d0 - 1) * bw;
+        const x1  = M.left + d1 * bw;
+        const mid = (x0 + x1) / 2;
+
+        // Banda alternada
+        if (w % 2 === 0) {
+          p.fill(tr, tg, tb, 9);
+          p.rect(x0, M.top, x1 - x0, chartBottom - M.top);
+        }
+
+        // Separador vertical al inicio de semana (excepto la primera)
+        if (d0 > 1) {
+          p.stroke(tr, tg, tb, 35); p.strokeWeight(1);
+          p.line(x0, M.top, x0, chartBottom);
+          p.noStroke();
+        }
+
+        // Rango de días ej. "1-7", "8-14"
+        p.fill(tr, tg, tb, 210);
+        p.textAlign(p.CENTER);
+        p.text(`${d0}–${d1}`, mid, chartBottom + 16);
+
+        // Línea de delimitación inferior para esa semana
+        p.stroke(tr, tg, tb, 18); p.strokeWeight(1);
+        p.line(x0, chartBottom, x1, chartBottom);
+        p.noStroke();
+      }
+
+      // Línea base
+      p.stroke(tr, tg, tb, 40); p.strokeWeight(1);
+      p.line(M.left, chartBottom, W - M.right, chartBottom);
+      p.noStroke();
+    }
+
     /* ── Eje X ───────────────────────────────────────── */
     function drawAxis() {
+      if (dayStackMo >= 0) { drawDayAxis(); return; }
       p.noStroke();
       p.textFont('Courier New');
       p.textSize(Math.max(7.5, Math.min(10, W/170)));
@@ -824,7 +911,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
       const rect = chartEl.getBoundingClientRect();
       let best=null, bestD=12;
       for (const d of dots) {
-        if (d.targetAlpha<10) continue;
+        if (d.targetAlpha<100) continue;
         const dist=Math.hypot(p.mouseX-d.cx, p.mouseY-d.cy);
         if (dist<bestD) { bestD=dist; best=d; }
       }
@@ -842,7 +929,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
       if (p.mouseY<0||p.mouseY>H||p.mouseX<0||p.mouseX>W) return;
       let best=null, bestD=14;
       for (const d of dots) {
-        if (d.targetAlpha<10) continue;
+        if (d.targetAlpha<100) continue;
         const dist=Math.hypot(p.mouseX-d.cx, p.mouseY-d.cy);
         if (dist<bestD) { bestD=dist; best=d; }
       }
@@ -850,14 +937,12 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     };
 
     /* ── draw loop ──────────────────────────────────── */
-    function p5bg() {
-      const s = getComputedStyle(document.documentElement);
-      return [+s.getPropertyValue('--p5-bg-r')||7, +s.getPropertyValue('--p5-bg-g')||0, +s.getPropertyValue('--p5-bg-b')||26];
+    function cssVar(name, fallback) {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      return v !== '' ? +v : fallback;
     }
-    function p5txt() {
-      const s = getComputedStyle(document.documentElement);
-      return [+s.getPropertyValue('--p5-txt-r')||255, +s.getPropertyValue('--p5-txt-g')||255, +s.getPropertyValue('--p5-txt-b')||255];
-    }
+    function p5bg()  { return [cssVar('--p5-bg-r',7),  cssVar('--p5-bg-g',0),   cssVar('--p5-bg-b',26)]; }
+    function p5txt() { return [cssVar('--p5-txt-r',255), cssVar('--p5-txt-g',255), cssVar('--p5-txt-b',255)]; }
 
     p.draw = () => {
       p.background(...p5bg());
@@ -872,7 +957,8 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
       W=chartEl.clientWidth; H=chartEl.clientHeight;
       p.resizeCanvas(W, H);
       DR=dotRadius(W);
-      computeTargets(W, H);
+      if (dayStackMo >= 0) computeTargetsDayStack(dayStackMo);
+      else computeTargets(W, H);
       settled=false; p.frameRate(30);
     };
 
@@ -890,38 +976,56 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
     lbl.textContent = kw>=0 ? KW[kw] : '';
     lbl.style.color = kw>=0 ? CL(kw)+'88' : '';
 
+    if (navMode === 'time') {
+      // En temporal: keyword es filtro secundario sobre el mes activo
+      // Dots fuera del mes siempre invisible; dentro del mes filtrar por keyword
+      const mo = curMo;
+      const cW = chartEl.clientWidth, cH = chartEl.clientHeight;
+      dots.forEach(d => {
+        if (d.mi !== mo) { d.targetAlpha = 0; d.delay = 0; return; }
+        if (kw >= 0 && d.ki !== kw) { d.targetAlpha = 0; d.delay = 0; }
+      });
+      const active = dots
+        .filter(d => d.mi === mo && (kw === -1 || d.ki === kw))
+        .sort((a, b) => a.tx - b.tx);
+      active.forEach((d, i) => {
+        const offsetX = (d.tx - cW * 0.5) * 0.65;
+        d.cx = d.tx + offsetX + (Math.random()-0.5)*40;
+        d.cy = -cH * 0.1 - Math.random()*cH*0.15;
+        d.alpha = 0;
+        d.targetAlpha = 210;
+        d.delay = Math.floor(i / active.length * 75);
+      });
+      KW.forEach((_,i) => { const e=document.getElementById(`li${i}`); if(e) e.style.opacity=(kw===-1||i===kw)?1:.22; });
+      chartEl._wake?.(kw >= 0 ? kw : -1);
+      return;
+    }
+
     if (kw === -1) {
-      // Mostrar todos: fade suave de izquierda a derecha
-      // Ordenar por posición X target para wave natural
       const sorted = [...dots].sort((a, b) => a.tx - b.tx);
       sorted.forEach((d, i) => {
-        d.targetAlpha = 115;
-        d.delay = Math.floor(i / sorted.length * 70); // 70 frames ≈ 2.3s a 30fps
+        d.targetAlpha = 210;
+        d.delay = Math.floor(i / sorted.length * 70);
       });
     } else {
-      // Keyword activo:
-      // - inactivos: desvanecer rápido
-      // - activos: scatter desde offset y volar de vuelta con stagger
-      let activeIdx = 0;
+      const cW = chartEl.clientWidth, cH = chartEl.clientHeight;
       dots.forEach(d => {
-        if (d.ki !== kw) {
-          d.targetAlpha = 7;
-          d.delay = 0;
-        } else {
-          // Desplazar a posición offset → fly-in
-          d.cx = d.tx - 140 + (Math.random()-0.5)*100;
-          d.cy = d.ty - 90  + (Math.random()-0.5)*70;
-          d.alpha = 0;
-          d.targetAlpha = 210;
-          d.delay = Math.min(activeIdx * 2, 45);
-          activeIdx++;
-        }
+        if (d.ki !== kw) { d.targetAlpha = 18; d.delay = 0; }
+      });
+      const active = dots.filter(d => d.ki === kw).sort((a, b) => a.tx - b.tx);
+      active.forEach((d, i) => {
+        const offsetX = (d.tx - cW * 0.5) * 0.65;
+        d.cx = d.tx + offsetX + (Math.random()-0.5)*40;
+        d.cy = -cH * 0.1 - Math.random()*cH*0.15;
+        d.alpha = 0;
+        d.targetAlpha = 210;
+        d.delay = Math.floor(i / active.length * 75);
       });
     }
 
     KW.forEach((_,i) => { const e=document.getElementById(`li${i}`); if(e) e.style.opacity=(kw===-1||i===kw)?1:.22; });
     document.querySelectorAll('.sec').forEach((s,i) => {
-      const sk=SECS[i].kw;
+      const sk=SECS[i]?.kw;
       s.style.background      = i===kw+1 ? CL(sk)+'09' : 'transparent';
       s.style.borderLeftColor = i===kw+1 ? CL(sk)+'77' : sk>=0 ? CL(sk)+'22' : 'transparent';
     });
@@ -941,26 +1045,33 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
   /* ── Filtro temporal: highlight por mes ─────────── */
   function applyTimeMo(mo) {
     if (mo===curMo) return; curMo=mo;
+    curKw = -99; // reset keyword filter al cambiar de mes
+    KW.forEach((_,i) => { const e=document.getElementById(`li${i}`); if(e) e.style.opacity=1; });
+    dayStackMo = mo; // -1 = panorama mes, >= 0 = detalle días
+
     if (mo === -1) {
+      // Volver a vista de meses
+      computeTargets(chartEl.clientWidth, chartEl.clientHeight);
       const sorted = [...dots].sort((a,b) => a.tx - b.tx);
       sorted.forEach((d, i) => {
-        d.targetAlpha = 115;
+        d.targetAlpha = 210;
         d.delay = Math.floor(i / sorted.length * 70);
       });
     } else {
-      let activeIdx = 0;
+      // Recalcular targets en layout día-stack y hacer fly-in progresivo
+      computeTargetsDayStack(mo);
+      const cW = chartEl.clientWidth, cH = chartEl.clientHeight;
       dots.forEach(d => {
-        if (d.mi !== mo) {
-          d.targetAlpha = 7;
-          d.delay = 0;
-        } else {
-          d.cx = d.tx - 140 + (Math.random()-0.5)*100;
-          d.cy = d.ty - 90  + (Math.random()-0.5)*70;
-          d.alpha = 0;
-          d.targetAlpha = 210;
-          d.delay = Math.min(activeIdx * 2, 45);
-          activeIdx++;
-        }
+        if (d.mi !== mo) { d.targetAlpha = 0; d.delay = 0; }
+      });
+      const active = dots.filter(d => d.mi === mo).sort((a, b) => a.tx - b.tx);
+      active.forEach((d, i) => {
+        const offsetX = (d.tx - cW * 0.5) * 0.65;
+        d.cx = d.tx + offsetX + (Math.random()-0.5)*40;
+        d.cy = -cH * 0.1 - Math.random()*cH*0.15;
+        d.alpha = 0;
+        d.targetAlpha = 210;
+        d.delay = Math.floor(i / active.length * 75);
       });
     }
     // Highlight sección activa
@@ -975,7 +1086,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
   function switchNavMode(mode) {
     if (mode===navMode) return;
     navMode=mode;
-    curKw=-99; curMo=-99;
+    curKw=-99; curMo=-99; dayStackMo=-1;
     document.getElementById('btn-kw').classList.toggle('active',   mode==='kw');
     document.getElementById('btn-time').classList.toggle('active', mode==='time');
     renderSections();
@@ -992,7 +1103,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
   document.getElementById('btn-kw').addEventListener('click',    () => switchNavMode('kw'));
   document.getElementById('btn-time').addEventListener('click',  () => switchNavMode('time'));
 
-  const SH=320;
+  const SH=380;
   window.addEventListener('scroll', () => {
     if (navMode === 'kw') {
       const idx = Math.min(Math.floor(window.scrollY/SH), SECS.length-1);
@@ -1065,8 +1176,6 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS }) {
 /* ══════════════════════════════════════════════════════
    RAG — PESTAÑA CONSULTAR
    ══════════════════════════════════════════════════════ */
-const WORKER_URL = 'https://nash-api.ogaldamez.workers.dev';
-
 (function () {
   const input      = document.getElementById('rag-input');
   const btn        = document.getElementById('rag-btn');
