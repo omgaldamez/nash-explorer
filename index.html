@@ -105,6 +105,12 @@ select option { background: var(--surface); }
 #klbl { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--txt-lo); transition: color .4s; white-space: nowrap; }
 
 #view-toggle, #mode-toggle { display: flex; gap: 2px; }
+#topn-sel {
+  background: var(--surface2); border: 1px solid var(--accent); color: var(--accent);
+  padding: 4px 9px; font-family: 'Courier New', monospace;
+  font-size: 9px; letter-spacing: 1.5px; cursor: pointer;
+  outline: none; text-transform: uppercase; max-width: 110px;
+}
 #view-toggle button, #mode-toggle button {
   background: var(--surface); border: 1px solid var(--border-hi); color: var(--txt-lo);
   padding: 4px 8px; font-family: 'Courier New', monospace;
@@ -393,7 +399,8 @@ body::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px
 <!-- toolbar siempre visible, fuera de panel-explore -->
 <div id="toolbar">
   <div id="toolbar-left">
-    <select id="sel"><option value="-1">◈ Todos los keywords</option></select>
+    <select id="topn-sel"><option value="8">Top 8</option></select>
+    <select id="sel"><option value="-1">◈ Todos</option></select>
     <span id="klbl"></span>
     <div id="view-toggle">
       <button id="btn-month" class="active">Meses</button>
@@ -453,7 +460,7 @@ body::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 2px
    CONFIG
    ══════════════════════════════════════════════════════ */
 const WORKER_URL = 'https://nash-api.ogaldamez.workers.dev';
-const MAX_KW   = 8;
+const MAX_KW   = 999;
 const PALETTE  = ['#ff00cc','#00e5a0','#ffaa00','#ff4455','#4499ff','#bb44ff','#ff8844','#00ccff'];
 const PAL_LIGHT= ['#bb0099','#006644','#bb6600','#bb0022','#1155bb','#7722bb','#bb4400','#0088aa'];
 const MES_ES   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
@@ -667,6 +674,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
   let stepObserver       = null; // IntersectionObserver para steps
   let curChapterSecIdx   = -1;   // secIdx del chapter activo (evita re-animación dentro del mismo chapter)
   let pauseObserver      = null; // IntersectionObserver para pausas
+  let topNFilter         = 8;    // cuántos keywords mostrar (por frecuencia desc)
   const M      = { top:12, right:14, bottom:36, left:10 };
 
   const SECS_TIME = SECS_TIME_BUILT;
@@ -716,7 +724,11 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
 
   function renderSections() {
     secEl.innerHTML = '';
-    const list   = navMode === 'kw' ? SECS : SECS_TIME;
+    // En modo kw filtrar secciones según topNFilter (excluir keywords fuera del top N)
+    const baseList = navMode === 'kw' ? SECS : SECS_TIME;
+    const list = navMode === 'kw'
+      ? baseList.filter(s => s.type !== 'kw' || s.kw === -1 || s.kw < topNFilter)
+      : baseList;
     const isTime = navMode === 'time';
     const isDark = document.documentElement.dataset.theme !== 'light';
     let chapN = 0;
@@ -807,18 +819,42 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
   renderSections();
   document.addEventListener('themechange', () => { renderSections(); renderLegend(); });
 
-  /* ── Leyenda + Dropdown ──────────────────────────── */
-  const leg = document.getElementById('leg');
-  const sel = document.getElementById('sel');
-  // Build dropdown options once
-  KW.forEach((kw, i) => {
+  /* ── Leyenda + Dropdowns ─────────────────────────── */
+  const leg    = document.getElementById('leg');
+  const sel    = document.getElementById('sel');
+  const topnEl = document.getElementById('topn-sel');
+
+  // Construir #topn-sel dinámicamente con las opciones reales
+  topnEl.innerHTML = '';
+  // Opciones: Todos, luego cada keyword individual como "Top N"
+  const allOpt = document.createElement('option');
+  allOpt.value = KW.length; allOpt.textContent = `Todos (${KW.length})`;
+  topnEl.appendChild(allOpt);
+  // Opciones fijas de corte: 3, 5, 8, 10, 15, 20 — solo las que tengan sentido
+  [3, 5, 8, 10, 15, 20].filter(n => n < KW.length).forEach(n => {
     const o = document.createElement('option');
-    o.value=i; o.textContent=`● ${kw}`; sel.appendChild(o);
+    o.value = n; o.textContent = `Top ${n}`;
+    topnEl.appendChild(o);
   });
+  topnEl.value = Math.min(8, KW.length); // default top 8
+  topNFilter   = parseInt(topnEl.value);
+
+  // Construir #sel (keyword individual) — se reconstruye al cambiar topN
+  function buildKwSelect() {
+    const prev = parseInt(sel.value);
+    sel.innerHTML = '<option value="-1">◈ Todos</option>';
+    KW.slice(0, topNFilter).forEach((kw, i) => {
+      const o = document.createElement('option');
+      o.value = i; o.textContent = `● ${kw}`;
+      sel.appendChild(o);
+    });
+    sel.value = (prev >= 0 && prev < topNFilter) ? prev : -1;
+  }
+  buildKwSelect();
 
   function renderLegend() {
     leg.innerHTML = '';
-    KW.forEach((kw, i) => {
+    KW.slice(0, topNFilter).forEach((kw, i) => {
       const li = document.createElement('div');
       li.className='li'; li.id=`li${i}`;
       li.innerHTML=`<div class="ld" style="background:${CL(i)}"></div><span class="lt" style="color:${CL(i)}">${kw}</span>`;
@@ -829,14 +865,17 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
   renderLegend();
 
   function updateLegVisibility() {
-    leg.style.display  = '';   // siempre visible
-    sel.style.display  = navMode==='kw' ? '' : 'none';
-    document.getElementById('klbl').style.display = navMode==='kw' ? '' : 'none';
+    leg.style.display  = '';
+    const showKw = navMode === 'kw';
+    sel.style.display    = showKw ? '' : 'none';
+    topnEl.style.display = showKw ? '' : 'none';
+    document.getElementById('klbl').style.display = showKw ? '' : 'none';
   }
 
   function updateStats() {
+    const visible = dots.filter(d => okKw(d)).length;
     const lbl = viewMode==='month' ? `${MO_LABEL.length} meses` : `${DAY_KEYS.length} días`;
-    document.getElementById('stats').textContent = `${dots.length.toLocaleString()} fragmentos · ${lbl}`;
+    document.getElementById('stats').textContent = `${visible.toLocaleString()} / ${dots.length.toLocaleString()} · ${lbl}`;
   }
   updateStats();
 
@@ -980,6 +1019,11 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
     };
 
     function dotRadius(W) { return Math.max(2.2, Math.min(4, W/310)); }
+    function dotRadiusForScore(base, score) {
+      if (score >= 2) return base;          // score 2 — tamaño completo
+      if (score >= 1) return base * 0.70;   // score 1 — mediano
+      return base * 0.45;                   // score 0 — pequeño
+    }
 
     /* ── Glow sutil: solo en dark mode, solo en keyword activo ─ */
     function drawGlowDot(x, y, r, rgb, alpha, glowing) {
@@ -1105,7 +1149,8 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
 
         // Glow solo en dots del keyword activo, no en "mostrar todos"
         const glowing = activeKwForGlow >= 0 && d.ki === activeKwForGlow;
-        drawGlowDot(d.cx, d.cy, DR, palRgb(d.ki), d.alpha, glowing);
+        const r = dotRadiusForScore(DR, d.score);
+        drawGlowDot(d.cx, d.cy, r, palRgb(d.ki), d.alpha, glowing);
       });
 
       settled = !moving;
@@ -1240,6 +1285,9 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
 
   }, chartEl);
 
+  /* ── Helper topN ─────────────────────────────────── */
+  function okKw(d) { return d.ki < topNFilter; } // ki ya viene ordenado por frecuencia desc desde buildData
+
   /* ── Filter ──────────────────────────────────────── */
   function applyFilter(kw) {
     if (kw===curKw) return; curKw=kw;
@@ -1248,23 +1296,21 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
     lbl.style.color = kw>=0 ? CL(kw)+'88' : '';
 
     if (navMode === 'time') {
-      // En temporal: keyword es filtro secundario sobre el mes activo
-      // Dots fuera del mes siempre invisible; dentro del mes filtrar por keyword
       const mo = curMo;
       const cW = chartEl.clientWidth, cH = chartEl.clientHeight;
       dots.forEach(d => {
-        if (d.mi !== mo) { d.targetAlpha = 0; d.delay = 0; return; }
-        if (kw >= 0 && d.ki !== kw) { d.targetAlpha = 0; d.delay = 0; }
+        if (d.mi !== mo || !okKw(d) || (kw >= 0 && d.ki !== kw)) {
+          d.targetAlpha = 0; d.delay = 0;
+        }
       });
       const active = dots
-        .filter(d => d.mi === mo && (kw === -1 || d.ki === kw))
+        .filter(d => d.mi === mo && okKw(d) && (kw === -1 || d.ki === kw))
         .sort((a, b) => a.tx - b.tx);
       active.forEach((d, i) => {
         const offsetX = (d.tx - cW * 0.5) * 0.65;
         d.cx = d.tx + offsetX + (Math.random()-0.5)*40;
         d.cy = -cH * 0.1 - Math.random()*cH*0.15;
-        d.alpha = 0;
-        d.targetAlpha = 210;
+        d.alpha = 0; d.targetAlpha = 210;
         d.delay = Math.floor(i / active.length * 75);
       });
       KW.forEach((_,i) => { const e=document.getElementById(`li${i}`); if(e) e.style.opacity=(kw===-1||i===kw)?1:.22; });
@@ -1275,23 +1321,24 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
     if (kw === -1) {
       const sorted = [...dots].sort((a, b) => a.tx - b.tx);
       sorted.forEach((d, i) => {
-        d.targetAlpha = 210;
-        d.delay = Math.floor(i / sorted.length * 70);
+        d.targetAlpha = okKw(d) ? 210 : 0;
+        d.delay = okKw(d) ? Math.floor(i / sorted.length * 70) : 0;
       });
     } else {
       const cW = chartEl.clientWidth, cH = chartEl.clientHeight;
       dots.forEach(d => {
-        if (d.ki !== kw) { d.targetAlpha = 18; d.delay = 0; }
+        if (d.ki !== kw) { d.targetAlpha = okKw(d) ? 18 : 0; d.delay = 0; }
       });
-      const active = dots.filter(d => d.ki === kw).sort((a, b) => a.tx - b.tx);
+      const active = dots.filter(d => d.ki === kw && okKw(d)).sort((a, b) => a.tx - b.tx);
       active.forEach((d, i) => {
         const offsetX = (d.tx - cW * 0.5) * 0.65;
         d.cx = d.tx + offsetX + (Math.random()-0.5)*40;
         d.cy = -cH * 0.1 - Math.random()*cH*0.15;
-        d.alpha = 0;
-        d.targetAlpha = 210;
+        d.alpha = 0; d.targetAlpha = 210;
         d.delay = Math.floor(i / active.length * 75);
       });
+      // Dots del mismo keyword que no pasan score: ocultar
+      dots.filter(d => d.ki === kw && !okKw(d)).forEach(d => { d.targetAlpha = 0; d.delay = 0; });
     }
 
     KW.forEach((_,i) => { const e=document.getElementById(`li${i}`); if(e) e.style.opacity=(kw===-1||i===kw)?1:.22; });
@@ -1302,6 +1349,34 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
       ch.style.borderLeftColor = isActive ? '' : (chKw >= 0 ? `${CL(chKw)}33` : 'transparent');
     });
     chartEl._wake?.(kw);
+  }
+
+  /* ── Cambio de top-N (sin re-animar posición) ──────── */
+  function applyTopN(n) {
+    if (n === topNFilter) return;
+    topNFilter = n;
+    // Reset keyword sel si el seleccionado quedó fuera
+    if (parseInt(sel.value) >= topNFilter) { sel.value = -1; curKw = -99; }
+    buildKwSelect();
+    renderLegend();
+    renderSections();
+
+    // Actualizar targetAlpha in-place según modo actual
+    if (navMode === 'kw') {
+      dots.forEach(d => {
+        if (!okKw(d)) { d.targetAlpha = 0; return; }
+        const isActive = curKw === -1 || curKw === -99 || d.ki === curKw;
+        d.targetAlpha = isActive ? 210 : (curKw === -1 || curKw === -99 ? 210 : 18);
+      });
+    } else {
+      dots.forEach(d => {
+        const inMo = curMo === -1 || d.mi === curMo;
+        const inKw = curKw === -1 || curKw === -99 || d.ki === curKw;
+        d.targetAlpha = (!okKw(d) || !inMo || !inKw) ? 0 : 210;
+      });
+    }
+    chartEl._wake?.();
+    updateStats();
   }
 
   function switchView(mode) {
@@ -1326,23 +1401,22 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
       computeTargets(chartEl.clientWidth, chartEl.clientHeight);
       const sorted = [...dots].sort((a,b) => a.tx - b.tx);
       sorted.forEach((d, i) => {
-        d.targetAlpha = 210;
-        d.delay = Math.floor(i / sorted.length * 70);
+        d.targetAlpha = okKw(d) ? 210 : 0;
+        d.delay = okKw(d) ? Math.floor(i / sorted.length * 70) : 0;
       });
     } else {
       // Recalcular targets en layout día-stack y hacer fly-in progresivo
       computeTargetsDayStack(mo);
       const cW = chartEl.clientWidth, cH = chartEl.clientHeight;
       dots.forEach(d => {
-        if (d.mi !== mo) { d.targetAlpha = 0; d.delay = 0; }
+        if (d.mi !== mo || !okKw(d)) { d.targetAlpha = 0; d.delay = 0; }
       });
-      const active = dots.filter(d => d.mi === mo).sort((a, b) => a.tx - b.tx);
+      const active = dots.filter(d => d.mi === mo && okKw(d)).sort((a, b) => a.tx - b.tx);
       active.forEach((d, i) => {
         const offsetX = (d.tx - cW * 0.5) * 0.65;
         d.cx = d.tx + offsetX + (Math.random()-0.5)*40;
         d.cy = -cH * 0.1 - Math.random()*cH*0.15;
-        d.alpha = 0;
-        d.targetAlpha = 210;
+        d.alpha = 0; d.targetAlpha = 210;
         d.delay = Math.floor(i / active.length * 75);
       });
     }
@@ -1438,6 +1512,7 @@ function initViz({ KW, kwN, MO_LABEL, DAY_KEYS, dots, SECS, SECS_TIME_BUILT }) {
 
   /* ── Events ─────────────────────────────────────── */
   sel.addEventListener('change', () => applyFilter(parseInt(sel.value)));
+  topnEl.addEventListener('change', () => applyTopN(parseInt(topnEl.value)));
   document.getElementById('btn-month').addEventListener('click', () => switchView('month'));
   document.getElementById('btn-day').addEventListener('click',   () => switchView('day'));
   document.getElementById('btn-kw').addEventListener('click',    () => switchNavMode('kw'));

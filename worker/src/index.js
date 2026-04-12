@@ -63,8 +63,8 @@ TIPOS DE RESPUESTA:
 
 /* ══ BUILD-DATA helpers (replica build_data.py) ══════════════════════════ */
 
-const SCORE_MIN = 2;
-const MAX_KW    = 8;
+const SCORE_MIN = 0;
+const MAX_KW    = 999; // sin límite práctico — incluir todos los keywords
 const MES_ES    = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
 function makeRng(seed) {
@@ -280,6 +280,78 @@ export default {
           _dataCacheTime = now;
         }
         return jsonResponse(_dataCache);
+      } catch (err) {
+        return errorResponse(err.message);
+      }
+    }
+
+    /* ── GET /debug — conteos para validar ingesta ── */
+    if (request.method === 'GET' && url.pathname === '/debug') {
+      if (!QDRANT_URL || !QDRANT_API_KEY) {
+        return errorResponse('Secrets no configurados en el Worker', 500);
+      }
+      try {
+        const points = await scrollAllQdrant(QDRANT_URL, QDRANT_API_KEY);
+        const total  = points.length;
+
+        // Contar por score
+        const scoreDist = {};
+        points.forEach(pt => {
+          const p = pt.payload; const m = p.metadata || p;
+          const s = Math.floor(parseFloat(m.puntuacion_total ?? m.score ?? 0));
+          scoreDist[s] = (scoreDist[s] || 0) + 1;
+        });
+
+        // Contar por keyword (sin filtro de score)
+        const kwAll = {};
+        points.forEach(pt => {
+          const p = pt.payload; const m = p.metadata || p;
+          const kw = (m.keywords || m.keyword || '').trim().toLowerCase() || '(vacío)';
+          kwAll[kw] = (kwAll[kw] || 0) + 1;
+        });
+        const topKwAll = Object.entries(kwAll).sort((a,b) => b[1]-a[1]).slice(0, 20);
+
+        // Contar puntos que pasan SCORE_MIN=2 y tienen keyword+fecha válidos
+        let passScore = 0, missingKw = 0, missingFecha = 0, badFecha = 0;
+        points.forEach(pt => {
+          const p = pt.payload; const m = p.metadata || p;
+          const score = parseFloat(m.puntuacion_total ?? m.score ?? 0);
+          if (score < SCORE_MIN) return;
+          passScore++;
+          const kw    = (m.keywords || m.keyword || '').trim();
+          const fecha = (m.fecha || '').trim();
+          if (!kw) { missingKw++; return; }
+          if (!fecha) { missingFecha++; return; }
+          if (fecha.split('/').length !== 3) badFecha++;
+        });
+
+        // Contar dots en top-8 keywords (con score>=2)
+        const kwFiltered = {};
+        points.forEach(pt => {
+          const p = pt.payload; const m = p.metadata || p;
+          const score = parseFloat(m.puntuacion_total ?? m.score ?? 0);
+          if (score < SCORE_MIN) return;
+          const kw    = (m.keywords || m.keyword || '').trim().toLowerCase();
+          const fecha = (m.fecha || '').trim();
+          if (!kw || !fecha || fecha.split('/').length !== 3) return;
+          kwFiltered[kw] = (kwFiltered[kw] || 0) + 1;
+        });
+        const topKw8 = Object.entries(kwFiltered).sort((a,b) => b[1]-a[1]).slice(0, MAX_KW);
+        const inTop8 = topKw8.reduce((s,[,n]) => s+n, 0);
+
+        return jsonResponse({
+          total_scrolled:    total,
+          score_distribution: scoreDist,
+          pass_score_min:    passScore,
+          missing_keyword:   missingKw,
+          missing_fecha:     missingFecha,
+          bad_fecha_format:  badFecha,
+          dots_in_top8_kw:   inTop8,
+          top20_keywords_all:  topKwAll,
+          top8_keywords_used:  topKw8,
+          SCORE_MIN,
+          MAX_KW,
+        });
       } catch (err) {
         return errorResponse(err.message);
       }
