@@ -19,16 +19,16 @@ al audio original.
 <response_format>
 Para CADA declaración citada incluye siempre:
   • Cita textual entre comillas
+  • ID del fragmento
   • Fecha (DD/MM/YYYY)
   • Subject
   • Keywords
   • Timestamp: min_sec
-  • Score: puntuacion_total
 
 TIPOS DE RESPUESTA:
 
 1. BÚSQUEDA SEMÁNTICA LIBRE:
-- Presenta las declaraciones más relevantes (máx. 6, orden por puntuacion_total desc)
+- Presenta las declaraciones más relevantes (máx. 6, orden por similitud desc)
 - Cierra con análisis del patrón discursivo
 
 2. BÚSQUEDA POR KEYWORD:
@@ -43,29 +43,42 @@ TIPOS DE RESPUESTA:
 - Agrupa por subject
 - Resumen de agenda temática del día/periodo
 
-5. BÚSQUEDA POR PUNTUACIÓN:
-- Ordena por puntuacion_total descendente
-- Formato: Score [X] | Fecha | Subject | Keywords → "cita" — Timestamp
-
-6. CONSULTAS COMBINADAS:
+5. CONSULTAS COMBINADAS:
 - Aplica todos los filtros indicados
 - Especifica qué filtros se aplicaron
+- Si hay pocos resultados indica qué filtro es más restrictivo
 </response_format>
 
 <critical_rules>
-- NUNCA parafrasees — cita siempre el content textual
-- SIEMPRE incluye timestamp para trazabilidad al audio
+- NUNCA parafrasees — cita siempre el content textual exacto
+- SIEMPRE incluye el ID para trazabilidad al punto en la base de datos
+- SIEMPRE incluye el timestamp (min_sec) para verificación en audio
 - SIEMPRE incluye la fecha
-- Prioriza puntuacion_total = 3
-- Tono analítico y neutral
-- Si no hay resultados sugiere ampliar la búsqueda
-</critical_rules>`;
+- Tono analítico y neutral — describe patrones, no interpretes políticamente
+- Si no hay resultados suficientes, sugiere ampliar con keywords relacionados o rango de fechas
+</critical_rules>
 
-/* ══ BUILD-DATA helpers (replica build_data.py) ══════════════════════════ */
+<examples>
+<example>
+Consulta: "qué se dijo sobre desaparecidos"
+Respuesta:
+Encontré 3 declaraciones relevantes sobre desaparecidos.
 
-const SCORE_MIN = 0;
-const MAX_KW    = 999; // sin límite práctico — incluir todos los keywords
-const MES_ES    = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+- "Y ella misma por su historia personal, de que tiene un hermano desaparecido en la época donde había represión desde el Estado."
+  - ID: 766
+  - Fecha: 14/11/2024
+  - Subject: Desapariciones
+  - Keywords: desaparecidos
+  - Timestamp: 96:01
+
+Análisis: El discurso vincula el tema de desapariciones con historias personales y con la represión estatal histórica.
+</example>
+</examples>`;
+
+/* ══ BUILD-DATA helpers (para visualización scrollytelling) ══════════════ */
+
+const MAX_KW = 999;
+const MES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
 function makeRng(seed) {
   let s = seed | 0;
@@ -78,23 +91,21 @@ function makeRng(seed) {
 }
 
 function buildData(points) {
-  // Normalizar payload
   const rows = [];
   for (const pt of points) {
     const p = pt.payload;
     const m = p.metadata || p;
-    const score = parseFloat(m.puntuacion_total ?? m.score ?? 0);
-    if (score < SCORE_MIN) continue;
     const kw    = (m.keywords || m.keyword || '').trim().toLowerCase();
     const fecha = (m.fecha || '').trim();
-    const frase = (p.content || p.frase || '').trim().slice(0, 160);
+    const frase = (p.content || '').trim().slice(0, 160);
     const sub   = (m.subject || '').trim();
+    const id    = (m.id || '').toString();
     if (!kw || !fecha) continue;
     const parts = fecha.split('/');
     if (parts.length !== 3) continue;
     const dt = Date.UTC(+parts[2], +parts[1] - 1, +parts[0]);
     if (isNaN(dt)) continue;
-    rows.push({ kw, dt, score: Math.floor(score), sub, frase });
+    rows.push({ kw, dt, sub, frase, id });
   }
 
   // Top MAX_KW keywords por frecuencia
@@ -116,11 +127,11 @@ function buildData(points) {
   });
   const moIdx = Object.fromEntries(moKeys.map((k,i) => [k,i]));
 
-  // Días únicos (timestamps UTC)
+  // Días únicos
   const daySet = new Set(rows.map(r => r.dt));
   const dayMs  = [...daySet].sort((a,b) => a-b);
 
-  // Dots — mismo seeded RNG que el frontend
+  // Dots
   const rng  = makeRng(42);
   const dots = [];
   const kwN  = new Array(KW.length).fill(0);
@@ -135,27 +146,25 @@ function buildData(points) {
     const rx = +(rng() - 0.5).toFixed(4);
     const ry = +rng().toFixed(4);
     kwN[ki]++;
-    dots.push([ki, mi, r.dt, rx, ry, r.score, r.sub, r.frase]);
+    dots.push([ki, mi, r.dt, rx, ry, r.sub, r.frase, r.id]);
   });
 
   return { kw: KW, kwN, mo: moLabels, dayMs, dots };
 }
 
-/* ── Módulo-level cache: evita re-scrollear Qdrant en cada request ─────── */
+/* ── Cache de visualización (1 hora) ───────────────────────────────────── */
 let _dataCache     = null;
 let _dataCacheTime = 0;
-const CACHE_TTL    = 60 * 60 * 1000; // 1 hora
+const CACHE_TTL    = 60 * 60 * 1000;
 
 /* ══ Qdrant helpers ═════════════════════════════════════════════════════ */
 
 async function scrollAllQdrant(qdrantUrl, qdrantKey) {
   const points = [];
   let offset   = null;
-
   do {
     const body = { limit: 1000, with_payload: true, with_vectors: false };
     if (offset !== null) body.offset = offset;
-
     const res = await fetch(`${qdrantUrl}/collections/Nash/points/scroll`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': qdrantKey },
@@ -169,7 +178,6 @@ async function scrollAllQdrant(qdrantUrl, qdrantKey) {
     points.push(...(data.result?.points ?? []));
     offset = data.result?.next_page_offset ?? null;
   } while (offset !== null);
-
   return points;
 }
 
@@ -214,12 +222,14 @@ async function generateAnswer(query, fragments, geminiKey) {
       const m = p.metadata || p;
       return [
         `[${i + 1}]`,
+        `ID: ${m.id || '?'}`,
         `Fecha: ${m.fecha || '?'}`,
         `Subject: ${m.subject || '?'}`,
         `Keywords: ${m.keywords || m.keyword || '?'}`,
         `Timestamp: ${m.min_sec || '?'}`,
-        `Score: ${m.puntuacion_total ?? m.score ?? '?'}`,
-        `Texto: "${p.content || p.frase || ''}"`,
+        `Archivo: ${m.archivo || '?'}`,
+        `Similitud: ${f.score?.toFixed(4) || '?'}`,
+        `Texto: "${p.content || ''}"`,
       ].join('\n');
     })
     .join('\n\n---\n\n');
@@ -294,15 +304,7 @@ export default {
         const points = await scrollAllQdrant(QDRANT_URL, QDRANT_API_KEY);
         const total  = points.length;
 
-        // Contar por score
-        const scoreDist = {};
-        points.forEach(pt => {
-          const p = pt.payload; const m = p.metadata || p;
-          const s = Math.floor(parseFloat(m.puntuacion_total ?? m.score ?? 0));
-          scoreDist[s] = (scoreDist[s] || 0) + 1;
-        });
-
-        // Contar por keyword (sin filtro de score)
+        // Contar por keyword
         const kwAll = {};
         points.forEach(pt => {
           const p = pt.payload; const m = p.metadata || p;
@@ -311,45 +313,35 @@ export default {
         });
         const topKwAll = Object.entries(kwAll).sort((a,b) => b[1]-a[1]).slice(0, 20);
 
-        // Contar puntos que pasan SCORE_MIN=2 y tienen keyword+fecha válidos
-        let passScore = 0, missingKw = 0, missingFecha = 0, badFecha = 0;
+        // Contar por subject
+        const subAll = {};
         points.forEach(pt => {
           const p = pt.payload; const m = p.metadata || p;
-          const score = parseFloat(m.puntuacion_total ?? m.score ?? 0);
-          if (score < SCORE_MIN) return;
-          passScore++;
+          const sub = (m.subject || '(vacío)').trim();
+          subAll[sub] = (subAll[sub] || 0) + 1;
+        });
+
+        // Validación de campos
+        let missingKw = 0, missingFecha = 0, badFecha = 0, missingId = 0;
+        points.forEach(pt => {
+          const p = pt.payload; const m = p.metadata || p;
           const kw    = (m.keywords || m.keyword || '').trim();
           const fecha = (m.fecha || '').trim();
-          if (!kw) { missingKw++; return; }
-          if (!fecha) { missingFecha++; return; }
-          if (fecha.split('/').length !== 3) badFecha++;
+          const id    = (m.id || '').toString().trim();
+          if (!kw)    missingKw++;
+          if (!fecha) missingFecha++;
+          else if (fecha.split('/').length !== 3) badFecha++;
+          if (!id)    missingId++;
         });
-
-        // Contar dots en top-8 keywords (con score>=2)
-        const kwFiltered = {};
-        points.forEach(pt => {
-          const p = pt.payload; const m = p.metadata || p;
-          const score = parseFloat(m.puntuacion_total ?? m.score ?? 0);
-          if (score < SCORE_MIN) return;
-          const kw    = (m.keywords || m.keyword || '').trim().toLowerCase();
-          const fecha = (m.fecha || '').trim();
-          if (!kw || !fecha || fecha.split('/').length !== 3) return;
-          kwFiltered[kw] = (kwFiltered[kw] || 0) + 1;
-        });
-        const topKw8 = Object.entries(kwFiltered).sort((a,b) => b[1]-a[1]).slice(0, MAX_KW);
-        const inTop8 = topKw8.reduce((s,[,n]) => s+n, 0);
 
         return jsonResponse({
-          total_scrolled:    total,
-          score_distribution: scoreDist,
-          pass_score_min:    passScore,
-          missing_keyword:   missingKw,
-          missing_fecha:     missingFecha,
-          bad_fecha_format:  badFecha,
-          dots_in_top8_kw:   inTop8,
-          top20_keywords_all:  topKwAll,
-          top8_keywords_used:  topKw8,
-          SCORE_MIN,
+          total_scrolled:     total,
+          missing_keyword:    missingKw,
+          missing_fecha:      missingFecha,
+          bad_fecha_format:   badFecha,
+          missing_id:         missingId,
+          top20_keywords:     topKwAll,
+          subjects:           subAll,
           MAX_KW,
         });
       } catch (err) {
@@ -381,12 +373,13 @@ export default {
           const p = f.payload;
           const m = p.metadata || p;
           return {
-            content:          p.content || p.frase || '',
+            content:          p.content || '',
+            id:               m.id || '',
             fecha:            m.fecha || '',
             subject:          m.subject || '',
             keywords:         m.keywords || m.keyword || '',
             min_sec:          m.min_sec || '',
-            puntuacion_total: m.puntuacion_total ?? m.score ?? null,
+            archivo:          m.archivo || '',
             score_similarity: f.score,
           };
         });
